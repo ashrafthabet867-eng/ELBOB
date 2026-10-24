@@ -3,7 +3,6 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
@@ -26,45 +25,23 @@ const ai = new GoogleGenAI({
   },
 });
 
-// Load the attached course guide and model answer documents into knowledge context
-let attachedKnowledge = '';
-try {
-  const file1Path = path.resolve(__dirname, 'public/assets/aistudio/____________________56d26724.md');
-  const file2Path = path.resolve(__dirname, 'public/assets/aistudio/______________________61b70fd9.md');
-  if (fs.existsSync(file1Path)) {
-    attachedKnowledge += '\n\n' + fs.readFileSync(file1Path, 'utf-8');
-  }
-  if (fs.existsSync(file2Path)) {
-    attachedKnowledge += '\n\n' + fs.readFileSync(file2Path, 'utf-8');
-  }
-} catch (e) {
-  console.error('Error reading attached markdown files:', e);
-}
-
 const SYSTEM_INSTRUCTION = `أنت تطبيق "البوب" - المساعد الذكي لمادة المحاسبة المالية (الصف الثاني - البكالوريا المصرية).
-قواعد العمل الصارمة والإلزامية:
-1. عملك وتحليلك وإجاباتك مقتصرة بشكل حصري وحتمي على المقرر والملفات المرفقة فقط الخاصة بالبكالوريا المصرية (الصف الثاني، الجزء الأول والجزء الثاني). لا تخرج عنها مطلقاً.
-2. منهجية الإجابة النموذجية (JRE):
-   - الأسئلة المباشرة/المراجعة/فكّر: إجابة نموذجية قصيرة محكمة تربط [الحكم + التفسير] باستخدام (لأن... لذلك... وهذا يعني أن...).
-   - أسئلة JRE التحليلية الكبرى: إجابة منضبطة من [مقدمة تحدد المفهوم والحكم -> الحجة الأولى -> الحجة الثانية أو المضادة -> خاتمة بحكم مبرر متوازن].
-3. قيود اليومية والحسابات:
-   - استخدم القيود المحاسبية الدقيقة وحسابات T والقوائم المالية المعتمدة في الملفات:
-     * الوحدة 1: معادلة المحاسبة، الحيطة والحذر، المقابلة، الثبات، الاستحقاق والنقدي، مجمل الربح وصافي الربح، قائمة المركز المالي.
-     * الوحدة 2: القيد المزدوج، الأسئلة الاسترشادية الثلاثة، حساب T، ترصيد، ميزان المراجعة، الأخطاء التي تؤثر والتي لا تؤثر.
-     * الوحدة 3: دفاتر اليومية المساعدة (المبيعات، المشتريات، المردودات، الخصم التجاري والنقدي، دفتر النقدية ذو 3 أعمدة، المصروفات النثرية).
-     * الوحدة 4: ميزان المراجعة، قسمة الفرق على 2، الحساب المعلق، قيود التصحيح.
-     * الوحدة 5: القوائم المالية للمنشأة الفردية، حساب المتاجرة، حساب أ.خ، التسويات الجردية (المصروف المقدم والمستحق، الإهلاك، الديون المعدومة).
-     * الوحدة 6: السجلات غير المكتملة، حسابات المراقبة (مراقبة المبيعات والمشتريات)، مذكرة تسوية البنك.
-     * الوحدة 7: الإهلاك (قسط ثابت وقسط متناقص)، استبعاد الأصول، مخصص الديون المشكوك في تحصيلها.
-     * الوحدة 8: حسابات الشراكة، توزيع الأرباح والخسائر، فائدة رأس المال، رواتب الشركاء، الحساب الجاري، الشهرة.
-     * الوحدة 9: الشركات ذات المسؤولية المحدودة، رأس مال الأسهم، الاحتياطيات، المنظمات غير الهادفة للربح (المقبوضات والمدفوعات، الإيرادات والمصروفات).
-     * الوحدة 10: تحليل القوائم المالية، نسب الربحية، نسب السيولة (نسبة التداول، رأس المال العامل)، نسب الكفاءة (معدل دوران المخزون).
-4. السرعة والإيجاز النموذجي: ابدأ بالإجابة مباشرة دون مقدمات طويلة بلا فائدة أو تكرار لنص السؤال. الوضوح أهم من الإطالة.
+أنت مقيّد حصرياً بالمنهج المصري والملفات المرفقة (الجزء الأول: الوحدات 1-5، والجزء الثاني: الوحدات 6-10).
 
-ملفات المنهج ونماذج الإجابات المعتمدة:
-${attachedKnowledge}`;
+قواعد الإجابة النموذجية المعتمدة (JRE - التفسير المدعوم بالأدلة):
+1. في الأسئلة المباشرة والمراجعة وفقرة (فكّر):
+   - أجب بصيغة [حكم + تفسير] موجزة ومباشرة من 1-3 جمل باستخدام أدوات الربط: (لأن... لذلك... وهذا يعني أن...).
+2. في أسئلة JRE التحليلية الكبرى:
+   - اتبع الهيكل المعتمد: [مقدمة تحدد المفهوم والموقف -> الحجة الأولى -> الحجة الثانية أو المضادة والرد عليها -> خاتمة بحكم مبرر متوازن].
+3. في التمارين والعمليات الحسابية:
+   - قدّم التمهيد الحسابي الرياضي بدقة.
+   - قيود اليومية منسقة بدقة: من حـ/ ... إلى حـ/ ... مع المبالغ والشرح.
+   - حسابات الأستاذ حرف T والترصيد، وميزان المراجعة، ومذكرة تسوية البنك، والقوائم المالية (المتاجرة، أ.خ، المركز المالي) بدقة تامة.
+4. الأسلوب:
+   - ابدأ بالحل مباشرة بدون مقدمات فارغة أو تكرار لنص السؤال.
+   - لغة عربية فصحى واضحة وعبارات محاسبية معتمدة في المنهج المصري.`;
 
-// Streaming Chat Endpoint (Optimized for maximum speed)
+// Streaming Chat Endpoint with automatic resilience and model fallback
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
     const { messages } = req.body;
@@ -74,33 +51,76 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    const contents = messages.map((m: { role: string; content: string }) => ({
-      role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    // Filter out messages with empty content
+    const validMessages = messages.filter(
+      (m: { role: string; content?: string }) => m && m.content && m.content.trim() !== ''
+    );
+
+    // CRITICAL: Gemini multi-turn conversation MUST start with a 'user' turn!
+    // Skip any introductory 'model' messages
+    const firstUserIndex = validMessages.findIndex((m: { role: string }) => m.role === 'user');
+    const userStartedMessages = firstUserIndex !== -1 ? validMessages.slice(firstUserIndex) : validMessages;
+
+    if (userStartedMessages.length === 0) {
+      res.status(400).json({ error: 'يجب أن تبدأ المحادثة برسالة من المستخدم' });
+      return;
+    }
+
+    // Merge consecutive turns with the same role to strictly alternate user/model
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+    for (const msg of userStartedMessages) {
+      const role: 'user' | 'model' =
+        msg.role === 'model' || msg.role === 'assistant' ? 'model' : 'user';
+
+      if (contents.length > 0 && contents[contents.length - 1].role === role) {
+        contents[contents.length - 1].parts[0].text += '\n\n' + msg.content;
+      } else {
+        contents.push({
+          role,
+          parts: [{ text: msg.content }],
+        });
+      }
+    }
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    // Use gemini-3.8-flash with LOW thinking level for super fast responses
-    const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-3.8-flash',
-      contents,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.1,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
-        },
-      },
-    });
+    // Stream generation with fast fallback if primary model experiences 503 or high demand
+    let streamSuccess = false;
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
-    for await (const chunk of responseStream) {
-      if (chunk.text) {
-        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+    for (const modelName of modelsToTry) {
+      try {
+        const responseStream = await ai.models.generateContentStream({
+          model: modelName,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            temperature: 0.1,
+            ...(modelName.includes('3.8')
+              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+              : {}),
+          },
+        });
+
+        for await (const chunk of responseStream) {
+          if (chunk.text) {
+            res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+          }
+        }
+
+        streamSuccess = true;
+        break; // Successfully streamed response
+      } catch (streamErr: any) {
+        console.warn(`Model ${modelName} failed or busy:`, streamErr.message || streamErr);
+        // Continue to next model in fallback list if not finished
       }
+    }
+
+    if (!streamSuccess) {
+      res.write(`data: ${JSON.stringify({ error: 'عذراً، الخادم يواجه ضغطاً مؤقتاً، يرجى إعادة المحاولة بعد ثوانٍ.' })}\n\n`);
     }
 
     res.write('data: [DONE]\n\n');
@@ -116,7 +136,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   }
 });
 
-// Audio Transcription Endpoint using gemini-3.5-transcribe
+// Audio Transcription Endpoint using gemini-3.5-transcribe with fallback
 app.post('/api/transcribe', async (req: Request, res: Response) => {
   try {
     const { audioBase64, mimeType } = req.body;
