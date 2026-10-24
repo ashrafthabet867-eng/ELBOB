@@ -1,0 +1,10 @@
+{
+  "name": "البوب",
+  "description": "تشات بوت ذكي حصري لمادة المحاسبة المالية للصف الثاني الثانوي وفق منهج البكالوريا المصرية والملفات المعتمدة حصراً.",
+  "requestFramePermissions": [
+    "android.permission.RECORD_AUDIO"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
