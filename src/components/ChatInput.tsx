@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Square, Loader2 } from 'lucide-react';
+import { Send, Mic, Square, Loader2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { Attachment } from '../types';
 
 interface ChatInputProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, attachment?: Attachment) => void;
   isLoading: boolean;
   onStopGeneration?: () => void;
 }
@@ -13,11 +14,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopGeneration,
 }) => {
   const [input, setInput] = useState('');
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
@@ -31,9 +34,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [input]);
 
   const handleSend = () => {
-    if (!input.trim() || isLoading) return;
-    onSendMessage(input.trim());
+    if ((!input.trim() && !attachment) || isLoading) return;
+    onSendMessage(input.trim(), attachment || undefined);
     setInput('');
+    setAttachment(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -46,7 +50,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Robust Audio Recording using MediaRecorder + Backend Gemini Transcription
+  // Handle File / Image upload
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert('الحد الأقصى لحجم الملف هو 20 ميجابايت.');
+      return;
+    }
+
+    const isImage = file.type.startsWith('image/');
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      const base64Data = (reader.result as string).split(',')[1];
+      setAttachment({
+        type: isImage ? 'image' : 'file',
+        mimeType: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
+        data: base64Data,
+        name: file.name,
+        size: file.size,
+      });
+    };
+
+    reader.readAsDataURL(file);
+    // Reset file input so same file can be picked again
+    e.target.value = '';
+  };
+
+  // Audio Recording using MediaRecorder + Backend Gemini Transcription
   const startRecording = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -60,9 +93,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = ''; // browser default
-        }
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
       }
 
       const mediaRecorder = mimeType
@@ -70,13 +101,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         : new MediaRecorder(stream);
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
-        // Stop all tracks to release mic
         stream.getTracks().forEach((track) => track.stop());
 
         const finalBlob = new Blob(audioChunksRef.current, {
@@ -148,6 +176,41 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className="border-t border-slate-800/80 bg-slate-900/95 p-3 sm:p-4 backdrop-blur-md">
       <div className="max-w-3xl mx-auto space-y-2">
+        {/* Attachment preview if selected */}
+        {attachment && (
+          <div className="flex items-center justify-between bg-slate-800/90 border border-slate-700 rounded-xl p-2 px-3 text-xs text-slate-200">
+            <div className="flex items-center gap-2 truncate">
+              {attachment.type === 'image' ? (
+                <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-600 shrink-0">
+                  <img
+                    src={`data:${attachment.mimeType};base64,${attachment.data}`}
+                    alt="مرفق"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+              )}
+              <div className="truncate">
+                <span className="font-semibold block truncate">{attachment.name}</span>
+                <span className="text-[10px] text-slate-400">
+                  {attachment.type === 'image' ? 'صورة مرفقة' : 'ملف / مستند'}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setAttachment(null)}
+              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition"
+              title="إزالة المرفق"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Active Recording or Transcribing Status */}
         {isRecording && (
           <div className="flex items-center justify-between bg-rose-950/60 border border-rose-500/40 rounded-xl px-3.5 py-1.5 text-xs text-rose-300 animate-pulse">
@@ -167,13 +230,30 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {isTranscribing && (
           <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 text-xs text-emerald-300">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-            <span>جارٍ تفريغ الصوت بدقة عبر Gemini 3.5 Transcribe...</span>
+            <span>جارٍ تفريغ الصوت بدقة عالية...</span>
           </div>
         )}
 
         {/* Input Bar */}
-        <div className="flex items-end gap-2 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2 focus-within:border-emerald-500 transition shadow-inner">
-          {/* Working Microphone Button */}
+        <div className="flex items-end gap-1.5 sm:gap-2 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2 focus-within:border-emerald-500 transition shadow-inner">
+          {/* File attachment button */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/*,.pdf,application/pdf"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2.5 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 transition shrink-0"
+            title="إرفاق صورة مسألة أو ملف PDF"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+
+          {/* Microphone Button */}
           <button
             type="button"
             onClick={toggleRecording}
@@ -183,7 +263,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 ? 'bg-rose-600 text-white animate-pulse'
                 : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/60'
             }`}
-            title={isRecording ? 'إيقاف التسجيل' : 'تحدث بالسؤال عبر المايك'}
+            title={isRecording ? 'إيقاف التسجيل' : 'إملاء صوتي'}
           >
             <Mic className="w-5 h-5" />
           </button>
@@ -195,7 +275,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isRecording ? 'تحدث الآن، صوتك قيد التسجيل...' : 'اكتب سؤالك في المحاسبة...'}
+            placeholder={
+              attachment
+                ? 'أضف تعليقاً أو استفساراً مع المرفق (اختياري)...'
+                : 'اكتب سؤالك أو أرفق صورة التمرين...'
+            }
             className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm resize-none focus:outline-none p-1.5 leading-relaxed"
           />
 
@@ -213,9 +297,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!input.trim() && !attachment}
               className={`p-2.5 rounded-xl shrink-0 transition flex items-center justify-center ${
-                input.trim()
+                input.trim() || attachment
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer active:scale-95'
                   : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
               }`}

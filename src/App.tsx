@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Header } from './components/Header';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
-import { Message } from './types';
+import { VoiceModal } from './components/VoiceModal';
+import { Message, Attachment } from './types';
 import { KeyRound, ArrowLeft, ShieldCheck, RefreshCw } from 'lucide-react';
 
 const INITIAL_MESSAGE: Message = {
@@ -11,9 +12,12 @@ const INITIAL_MESSAGE: Message = {
   content: `مرحباً بك، أنا «البوب»! 
 مساعدك المعتمد لمادة المحاسبة المالية بالبكالوريا المصرية (الصف الثاني، الجزء الأول والجزء الثاني).
 
-أنا جاهز لتقديم إجابات نموذجية حصرية ومباشرة طبقاً لملفات المنهج المعتمدة وقالب JRE (الحكم + التفسير + الدليل)، بالإضافة إلى حل التمارين وقيود اليومية والقوائم المالية.
+يمكنك الآن:
+1. كتابة أي سؤال أو مسألة حسابية مباشرة ✍️.
+2. إرفاق صورة تمرين أو ملف PDF لحله خطوة بخطوة 📎.
+3. بدء محادثة صوتية مباشرة معي والتحدث بالصوت 🎙️.
 
-تفضل بكتابة سؤالك أو تحدث عبر المايك مباشرة 🎙️`,
+تفضل باختيار الطريقة التي تفضلها للبدء!`,
   timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
 };
 
@@ -25,6 +29,7 @@ export default function App() {
   });
   const [passkeyInput, setPasskeyInput] = useState('');
   const [passkeyError, setPasskeyError] = useState('');
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
@@ -32,7 +37,6 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Clean out any past error messages from history completely
           const cleaned = parsed.filter(
             (m: Message) =>
               !m.content?.startsWith('⚠️') &&
@@ -91,10 +95,13 @@ export default function App() {
     setPasskeyError('');
   };
 
-  const handleSendMessage = async (text: string, baseMessages?: Message[]) => {
-    if (!text.trim() || isLoading) return;
+  const handleSendMessage = async (
+    text: string,
+    attachment?: Attachment,
+    baseMessages?: Message[]
+  ) => {
+    if ((!text.trim() && !attachment) || isLoading) return;
 
-    // Purge any past error messages
     const currentList = (baseMessages || messages).filter(
       (m) =>
         !m.content?.startsWith('⚠️') &&
@@ -107,13 +114,14 @@ export default function App() {
       role: 'user',
       content: text,
       timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      attachment,
     };
 
     const modelMsgId = `model-${Date.now()}`;
     const initialModelMsg: Message = {
       id: modelMsgId,
       role: 'model',
-      content: 'جاري التفكير وصياغة الإجابة النموذجية...',
+      content: 'جاري فحص المسألة وصياغة الإجابة النموذجية...',
       timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
     };
 
@@ -125,15 +133,14 @@ export default function App() {
     abortControllerRef.current = abortController;
 
     try {
-      // Prepare payload: filter welcome-msg and only send real conversations
       const chatPayload = updatedMessages
         .filter((m) => m.id !== 'welcome-msg')
         .map((m) => ({
           role: m.role,
           content: m.content,
+          attachment: m.attachment,
         }));
 
-      // Send request with automatic 1-retry fallback
       let response: Response;
       try {
         response = await fetch('/api/chat', {
@@ -143,7 +150,6 @@ export default function App() {
           signal: abortController.signal,
         });
 
-        // If transient 500 or 503, retry once after 800ms
         if (!response.ok && (response.status === 500 || response.status === 503)) {
           await new Promise((r) => setTimeout(r, 800));
           response = await fetch('/api/chat', {
@@ -155,7 +161,6 @@ export default function App() {
         }
       } catch (networkErr: any) {
         if (networkErr.name === 'AbortError') throw networkErr;
-        // Retry once on network blip
         await new Promise((r) => setTimeout(r, 800));
         response = await fetch('/api/chat', {
           method: 'POST',
@@ -198,6 +203,23 @@ export default function App() {
     }
   };
 
+  const handleNewMessagePair = (userText: string, modelText: string) => {
+    const time = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    const userMsg: Message = {
+      id: `usr-${Date.now()}`,
+      role: 'user',
+      content: userText,
+      timestamp: time,
+    };
+    const modelMsg: Message = {
+      id: `model-${Date.now() + 1}`,
+      role: 'model',
+      content: modelText,
+      timestamp: time,
+    };
+    setMessages((prev) => [...prev, userMsg, modelMsg]);
+  };
+
   const handleStopGeneration = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -211,7 +233,6 @@ export default function App() {
   };
 
   const handleRetryLast = () => {
-    // Find the last real user message
     const cleanList = messages.filter(
       (m) =>
         !m.content?.startsWith('⚠️') &&
@@ -220,8 +241,11 @@ export default function App() {
     );
     const lastUserMsg = [...cleanList].reverse().find((m) => m.role === 'user');
     if (lastUserMsg) {
-      // Re-send with clean list
-      handleSendMessage(lastUserMsg.content, cleanList.filter((m) => m.id !== lastUserMsg.id));
+      handleSendMessage(
+        lastUserMsg.content,
+        lastUserMsg.attachment,
+        cleanList.filter((m) => m.id !== lastUserMsg.id)
+      );
     }
   };
 
@@ -291,6 +315,7 @@ export default function App() {
         onResetChat={handleResetChat}
         hasMessages={messages.length > 1}
         onLockApp={handleLockApp}
+        onOpenVoiceMode={() => setIsVoiceModalOpen(true)}
       />
 
       <main className="flex-1 overflow-y-auto max-w-3xl w-full mx-auto p-4 sm:p-5 space-y-3">
@@ -324,6 +349,13 @@ export default function App() {
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
         onStopGeneration={handleStopGeneration}
+      />
+
+      {/* Dedicated High-Speed Voice Chat Modal */}
+      <VoiceModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        onNewMessagePair={handleNewMessagePair}
       />
     </div>
   );

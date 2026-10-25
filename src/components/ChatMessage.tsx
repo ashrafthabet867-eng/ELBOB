@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, FileText, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatMessageProps {
@@ -10,6 +10,7 @@ interface ChatMessageProps {
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isModel = message.role === 'model';
   const [copied, setCopied] = useState(false);
+  const [showImagePreview, setShowImagePreview] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -31,12 +32,40 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
 
       {/* Bubble */}
       <div
-        className={`rounded-2xl p-4 text-sm leading-relaxed max-w-full sm:max-w-[90%] border ${
+        className={`rounded-2xl p-4 text-sm leading-relaxed max-w-full sm:max-w-[90%] border shadow-md ${
           isModel
             ? 'bg-slate-900 text-slate-100 border-slate-800'
             : 'bg-emerald-700 text-white border-emerald-600 rounded-tr-none'
         }`}
       >
+        {/* Render Attachment if present */}
+        {message.attachment && (
+          <div className="mb-3">
+            {message.attachment.type === 'image' ? (
+              <div>
+                <img
+                  src={`data:${message.attachment.mimeType};base64,${message.attachment.data}`}
+                  alt={message.attachment.name}
+                  onClick={() => setShowImagePreview(true)}
+                  className="max-h-60 rounded-xl border border-white/20 cursor-pointer hover:opacity-95 transition object-cover"
+                />
+                <span className="block text-[11px] text-emerald-200/80 mt-1">
+                  📷 {message.attachment.name} (انقر للتكبير)
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-black/20 border border-white/10 text-xs">
+                <FileText className="w-5 h-5 text-emerald-300 shrink-0" />
+                <div className="truncate">
+                  <span className="font-semibold block truncate">{message.attachment.name}</span>
+                  <span className="text-[10px] opacity-75">مستند مرفق</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Message Content */}
         {isModel ? (
           <div className="space-y-2.5">
             {renderFormattedContent(message.content)}
@@ -45,7 +74,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
             )}
           </div>
         ) : (
-          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+          message.content && <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
         )}
       </div>
 
@@ -59,6 +88,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
           <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
         </button>
+      )}
+
+      {/* Lightbox Image Preview Modal */}
+      {showImagePreview && message.attachment && (
+        <div
+          onClick={() => setShowImagePreview(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md cursor-pointer animate-fade-in"
+        >
+          <div className="relative max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl">
+            <img
+              src={`data:${message.attachment.mimeType};base64,${message.attachment.data}`}
+              alt={message.attachment.name}
+              className="max-h-[85vh] max-w-full object-contain rounded-xl shadow-2xl"
+            />
+          </div>
+        </div>
       )}
     </div>
   );
