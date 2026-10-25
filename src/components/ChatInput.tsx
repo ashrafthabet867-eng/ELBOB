@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Square, Loader2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { Send, Mic, Square, Loader2, Paperclip, X, FileText } from 'lucide-react';
 import { Attachment } from '../types';
 
 interface ChatInputProps {
@@ -22,6 +22,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
 
@@ -75,11 +76,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
 
     reader.readAsDataURL(file);
-    // Reset file input so same file can be picked again
     e.target.value = '';
   };
 
-  // Audio Recording using MediaRecorder + Backend Gemini Transcription
+  // Dual Audio Recording: Real-time SpeechRecognition + MediaRecorder fallback
   const startRecording = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -87,9 +87,46 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
 
+      // 1. Try real-time browser recognition
+      const SpeechRecognition =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      let recognizedLiveText = '';
+      if (SpeechRecognition) {
+        try {
+          const rec = new SpeechRecognition();
+          rec.lang = 'ar-EG';
+          rec.continuous = true;
+          rec.interimResults = true;
+
+          rec.onresult = (ev: any) => {
+            let res = '';
+            for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+              res += ev.results[i][0].transcript;
+            }
+            if (res) {
+              recognizedLiveText = res;
+              setInput((prev) => (prev ? `${prev} ${res}` : res));
+            }
+          };
+
+          rec.start();
+          speechRecognitionRef.current = rec;
+        } catch (e) {
+          console.warn('SpeechRecognition not available:', e);
+        }
+      }
+
+      // 2. MediaRecorder for Gemini Transcribe fallback
+      audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/webm';
@@ -106,6 +143,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+
+        // If SpeechRecognition already gave us text, we're done!
+        if (recognizedLiveText.trim().length > 1) {
+          return;
+        }
 
         const finalBlob = new Blob(audioChunksRef.current, {
           type: mediaRecorder.mimeType || 'audio/webm',
@@ -159,8 +201,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const stopRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {}
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
     }
     setIsRecording(false);
   };
@@ -203,7 +252,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             <button
               onClick={() => setAttachment(null)}
-              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition"
+              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition cursor-pointer"
               title="إزالة المرفق"
             >
               <X className="w-4 h-4" />
@@ -216,11 +265,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <div className="flex items-center justify-between bg-rose-950/60 border border-rose-500/40 rounded-xl px-3.5 py-1.5 text-xs text-rose-300 animate-pulse">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <span>جارٍ الاستماع... ({recordingSeconds} ثانية)</span>
+              <span>المايك يستمع... ({recordingSeconds} ثانية)</span>
             </div>
             <button
               onClick={stopRecording}
-              className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 px-2.5 py-1 rounded-lg transition"
+              className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 px-2.5 py-1 rounded-lg transition cursor-pointer"
             >
               تم، حوّل إلى نص
             </button>
@@ -247,7 +296,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 transition shrink-0"
+            className="p-2.5 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 transition shrink-0 cursor-pointer"
             title="إرفاق صورة مسألة أو ملف PDF"
           >
             <Paperclip className="w-5 h-5" />
@@ -258,12 +307,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             type="button"
             onClick={toggleRecording}
             disabled={isTranscribing}
-            className={`p-2.5 rounded-xl transition shrink-0 ${
+            className={`p-2.5 rounded-xl transition shrink-0 cursor-pointer ${
               isRecording
                 ? 'bg-rose-600 text-white animate-pulse'
                 : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/60'
             }`}
-            title={isRecording ? 'إيقاف التسجيل' : 'إملاء صوتي'}
+            title={isRecording ? 'إيقاف التسجيل' : 'إملاء صوتي بالمايك'}
           >
             <Mic className="w-5 h-5" />
           </button>
@@ -277,8 +326,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={
               attachment
-                ? 'أضف تعليقاً أو استفساراً مع المرفق (اختياري)...'
-                : 'اكتب سؤالك أو أرفق صورة التمرين...'
+                ? 'أضف استفساراً مع المرفق (اختياري)...'
+                : 'اكتب سؤالك أو أرفق صورة المسألة...'
             }
             className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm resize-none focus:outline-none p-1.5 leading-relaxed"
           />
@@ -288,7 +337,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={onStopGeneration}
-              className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shrink-0 transition"
+              className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shrink-0 transition cursor-pointer"
               title="إيقاف"
             >
               <Square className="w-4 h-4 fill-current" />

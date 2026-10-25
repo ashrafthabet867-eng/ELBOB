@@ -1,5 +1,6 @@
 import React from 'react';
 import { RotateCcw, KeyRound, Mic } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   onResetChat: () => void;
@@ -15,15 +16,21 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenVoiceMode,
 }) => {
   return (
-    <header className="border-b border-slate-800/80 bg-slate-900/95 sticky top-0 z-30 px-4 py-3 backdrop-blur-sm">
+    <header className="border-b border-slate-800/80 bg-slate-900/95 sticky top-0 z-30 px-4 py-2.5 sm:py-3 backdrop-blur-sm">
       <div className="max-w-3xl mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm">
+            🎓
+          </div>
           <h1 className="text-xl sm:text-2xl font-black text-emerald-400 tracking-wide font-sans">
             البوب
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* PWA Install Button */}
+          <PWAInstallButton />
+
           {/* Dedicated Voice Chat Button */}
           <button
             onClick={onOpenVoiceMode}

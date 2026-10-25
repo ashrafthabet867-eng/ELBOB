@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#022c22"/>
+      <stop offset="50%" stop-color="#064e3b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background with rounded corners for standalone PWA -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+  
+  <!-- Outer glowing accent ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#glow)" stroke-width="8" opacity="0.4"/>
+  
+  <!-- Inner badge plate -->
+  <circle cx="256" cy="256" r="180" fill="#020617" stroke="#10b981" stroke-width="4"/>
+  
+  <!-- Accounting Scale / Balance Crest -->
+  <!-- Center Column -->
+  <rect x="246" y="150" width="20" height="180" rx="8" fill="url(#gold)"/>
+  <rect x="216" y="320" width="80" height="24" rx="10" fill="url(#gold)"/>
+  <circle cx="256" cy="140" r="16" fill="url(#gold)"/>
+  
+  <!-- Crossbar -->
+  <rect x="136" y="160" width="240" height="14" rx="7" fill="url(#gold)"/>
+  
+  <!-- Left Pan (Debit - مدين) -->
+  <line x1="166" y1="170" x2="140" y2="230" stroke="#34d399" stroke-width="4"/>
+  <line x1="166" y1="170" x2="192" y2="230" stroke="#34d399" stroke-width="4"/>
+  <path d="M 125 230 Q 166 265 207 230 Z" fill="url(#glow)"/>
+  
+  <!-- Right Pan (Credit - دائن) -->
+  <line x1="346" y1="170" x2="320" y2="230" stroke="#34d399" stroke-width="4"/>
+  <line x1="346" y1="170" x2="372" y2="230" stroke="#34d399" stroke-width="4"/>
+  <path d="M 305 230 Q 346 265 387 230 Z" fill="url(#glow)"/>
+  
+  <!-- Typography "البوب" -->
+  <text x="256" y="415" font-family="'Cairo', sans-serif" font-weight="900" font-size="56" fill="#34d399" text-anchor="middle" letter-spacing="2">البوب</text>
+  <text x="256" y="450" font-family="'Cairo', sans-serif" font-weight="600" font-size="20" fill="#94a3b8" text-anchor="middle">المحاسبة المالية • 2 ث</text>
+</svg>
