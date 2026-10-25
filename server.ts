@@ -41,23 +41,26 @@ const SYSTEM_INSTRUCTION = `أنت تطبيق "البوب" - المساعد ال
    - ابدأ بالحل مباشرة بدون مقدمات فارغة أو تكرار لنص السؤال.
    - لغة عربية فصحى واضحة وعبارات محاسبية معتمدة في المنهج المصري.`;
 
-// Streaming Chat Endpoint with automatic resilience and model fallback
+// Robust Chat Endpoint (Fast, Direct, and Guaranteed No-Drop)
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
-    const { messages } = req.body;
+    const { messages, stream } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       res.status(400).json({ error: 'قائمة الرسائل مطلوبة' });
       return;
     }
 
-    // Filter out messages with empty content
+    // Filter out messages with empty content or past error messages
     const validMessages = messages.filter(
-      (m: { role: string; content?: string }) => m && m.content && m.content.trim() !== ''
+      (m: { role: string; content?: string }) =>
+        m &&
+        m.content &&
+        m.content.trim() !== '' &&
+        !m.content.includes('عذراً، حدث انقطاع')
     );
 
     // CRITICAL: Gemini multi-turn conversation MUST start with a 'user' turn!
-    // Skip any introductory 'model' messages
     const firstUserIndex = validMessages.findIndex((m: { role: string }) => m.role === 'user');
     const userStartedMessages = firstUserIndex !== -1 ? validMessages.slice(firstUserIndex) : validMessages;
 
@@ -82,18 +85,60 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       }
     }
 
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    // Stream generation with fast fallback if primary model experiences 503 or high demand
-    let streamSuccess = false;
+    // Model hierarchy for fast and reliable answering
     const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+
+    // If SSE streaming is explicitly requested
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      let streamSuccess = false;
+      for (const modelName of modelsToTry) {
+        try {
+          const responseStream = await ai.models.generateContentStream({
+            model: modelName,
+            contents,
+            config: {
+              systemInstruction: SYSTEM_INSTRUCTION,
+              temperature: 0.1,
+              ...(modelName.includes('3.8')
+                ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+                : {}),
+            },
+          });
+
+          for await (const chunk of responseStream) {
+            if (chunk.text) {
+              res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+            }
+          }
+
+          streamSuccess = true;
+          break;
+        } catch (streamErr: any) {
+          console.warn(`Model ${modelName} stream error:`, streamErr.message || streamErr);
+        }
+      }
+
+      if (!streamSuccess) {
+        res.write(`data: ${JSON.stringify({ error: 'عذراً، الخادم يواجه ضغطاً مؤقتاً، يرجى المحاولة بعد لحظات.' })}\n\n`);
+      }
+
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    // Default: Direct Ultra-Fast JSON Response (Most robust across all proxies and browsers)
+    let replyText = '';
+    let lastError = '';
 
     for (const modelName of modelsToTry) {
       try {
-        const responseStream = await ai.models.generateContentStream({
+        const response = await ai.models.generateContent({
           model: modelName,
           contents,
           config: {
@@ -105,38 +150,31 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           },
         });
 
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-          }
+        if (response.text) {
+          replyText = response.text.trim();
+          break;
         }
-
-        streamSuccess = true;
-        break; // Successfully streamed response
-      } catch (streamErr: any) {
-        console.warn(`Model ${modelName} failed or busy:`, streamErr.message || streamErr);
-        // Continue to next model in fallback list if not finished
+      } catch (err: any) {
+        lastError = err.message || String(err);
+        console.warn(`Model ${modelName} error:`, lastError);
       }
     }
 
-    if (!streamSuccess) {
-      res.write(`data: ${JSON.stringify({ error: 'عذراً، الخادم يواجه ضغطاً مؤقتاً، يرجى إعادة المحاولة بعد ثوانٍ.' })}\n\n`);
+    if (!replyText) {
+      res.status(503).json({
+        error: lastError || 'عذراً، الخادم يواجه ضغطاً مؤقتاً، يرجى إعادة المحاولة.',
+      });
+      return;
     }
 
-    res.write('data: [DONE]\n\n');
-    res.end();
+    res.json({ text: replyText });
   } catch (error: any) {
     console.error('Chat error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'حدث خطأ' });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-      res.end();
-    }
+    res.status(500).json({ error: error.message || 'حدث خطأ في الخادم' });
   }
 });
 
-// Audio Transcription Endpoint using gemini-3.5-transcribe with fallback
+// Audio Transcription Endpoint using gemini-3.5-transcribe
 app.post('/api/transcribe', async (req: Request, res: Response) => {
   try {
     const { audioBase64, mimeType } = req.body;

@@ -3,7 +3,7 @@ import { Header } from './components/Header';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { Message } from './types';
-import { KeyRound, Lock, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { KeyRound, ArrowLeft, ShieldCheck, RefreshCw } from 'lucide-react';
 
 const INITIAL_MESSAGE: Message = {
   id: 'welcome-msg',
@@ -17,7 +17,6 @@ const INITIAL_MESSAGE: Message = {
   timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
 };
 
-// Accepted default keys
 const VALID_KEYS = ['ELBOB', 'elbob', '2026', 'البوب', '1234'];
 
 export default function App() {
@@ -32,7 +31,13 @@ export default function App() {
       const saved = localStorage.getItem('elbob_chat_history');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Clean out any past error messages
+          const cleaned = parsed.filter(
+            (m: Message) => !m.content?.includes('عذراً، حدث انقطاع')
+          );
+          if (cleaned.length > 0) return cleaned;
+        }
       }
     } catch (e) {
       console.error('History load error:', e);
@@ -91,7 +96,7 @@ export default function App() {
     const initialModelMsg: Message = {
       id: modelMsgId,
       role: 'model',
-      content: '',
+      content: 'جاري التفكير وصياغة الإجابة النموذجية...',
       timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
     };
 
@@ -103,10 +108,13 @@ export default function App() {
     abortControllerRef.current = abortController;
 
     try {
-      const chatPayload = updatedMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // Prepare messages payload, filtering out introductory model message
+      const chatPayload = updatedMessages
+        .filter((m) => m.id !== 'welcome-msg')
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -116,47 +124,17 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`خطأ في استجابة الخادم (${response.status})`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `خطأ في الخادم (${response.status})`);
       }
 
-      if (!response.body) {
-        throw new Error('لا توجد بيانات قادمة');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let fullText = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
-            if (dataStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.text) {
-                fullText += parsed.text;
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === modelMsgId ? { ...m, content: fullText } : m))
-                );
-              } else if (parsed.error) {
-                fullText += `\n⚠️ ${parsed.error}`;
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === modelMsgId ? { ...m, content: fullText } : m))
-                );
-              }
-            } catch {
-              // Ignore partial JSON chunks
-            }
-          }
-        }
+      const data = await response.json();
+      if (data && data.text) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === modelMsgId ? { ...m, content: data.text } : m))
+        );
+      } else {
+        throw new Error('لم يتم استلام نص الإجابة');
       }
     } catch (error: any) {
       if (error.name !== 'AbortError') {
@@ -166,9 +144,7 @@ export default function App() {
             m.id === modelMsgId
               ? {
                   ...m,
-                  content:
-                    m.content ||
-                    'عذراً، حدث انقطاع في الاتصال بالخادم. يرجى المحاولة مرة أخرى.',
+                  content: `⚠️ تعذر استلام الإجابة: ${error.message || 'خطأ في الاتصال'}\n\nيمكنك النقر على زر إعادة المحاولة أدناه.`,
                 }
               : m
           )
@@ -192,7 +168,16 @@ export default function App() {
     localStorage.removeItem('elbob_chat_history');
   };
 
-  // If locked, show Access Key screen
+  const handleRetryLast = () => {
+    // Find the last user message
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    if (lastUserMsg) {
+      // Remove the last model error message and re-send
+      setMessages((prev) => prev.slice(0, -1));
+      handleSendMessage(lastUserMsg.content);
+    }
+  };
+
   if (!isUnlocked) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-slate-100 p-4 font-sans">
@@ -251,31 +236,43 @@ export default function App() {
     );
   }
 
+  const hasErrorMessage = messages.some((m) => m.content.includes('⚠️ تعذر استلام الإجابة'));
+
   return (
     <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100 font-sans">
-      {/* Header: Pure and clean with only 'البوب' + lock & reset buttons */}
       <Header
         onResetChat={handleResetChat}
         hasMessages={messages.length > 1}
         onLockApp={handleLockApp}
       />
 
-      {/* Clean Chat Thread */}
       <main className="flex-1 overflow-y-auto max-w-3xl w-full mx-auto p-4 sm:p-5 space-y-3">
         {messages.map((message, index) => {
-          const isLastMessage = index === messages.length - 1;
+          const isLast = index === messages.length - 1;
           return (
             <ChatMessage
               key={message.id}
               message={message}
-              isStreaming={isLastMessage && isLoading && message.role === 'model'}
+              isStreaming={isLast && isLoading && message.role === 'model'}
             />
           );
         })}
+
+        {hasErrorMessage && !isLoading && (
+          <div className="flex justify-center pt-1">
+            <button
+              onClick={handleRetryLast}
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-400 rounded-xl shadow transition"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>إعادة المحاولة الآن</span>
+            </button>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </main>
 
-      {/* Input bar with working mic */}
       <ChatInput
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
