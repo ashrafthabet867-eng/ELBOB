@@ -32,9 +32,12 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Clean out any past error messages
+          // Clean out any past error messages from history completely
           const cleaned = parsed.filter(
-            (m: Message) => !m.content?.includes('عذراً، حدث انقطاع')
+            (m: Message) =>
+              !m.content?.startsWith('⚠️') &&
+              !m.content?.includes('تعذر استلام') &&
+              !m.content?.includes('انقطاع')
           );
           if (cleaned.length > 0) return cleaned;
         }
@@ -49,10 +52,16 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Save history
+  // Save clean history
   useEffect(() => {
     try {
-      localStorage.setItem('elbob_chat_history', JSON.stringify(messages));
+      const cleanToSave = messages.filter(
+        (m) =>
+          !m.content?.startsWith('⚠️') &&
+          !m.content?.includes('تعذر استلام') &&
+          !m.content?.includes('جاري التفكير')
+      );
+      localStorage.setItem('elbob_chat_history', JSON.stringify(cleanToSave));
     } catch (e) {
       console.error('History save error:', e);
     }
@@ -82,8 +91,16 @@ export default function App() {
     setPasskeyError('');
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, baseMessages?: Message[]) => {
     if (!text.trim() || isLoading) return;
+
+    // Purge any past error messages
+    const currentList = (baseMessages || messages).filter(
+      (m) =>
+        !m.content?.startsWith('⚠️') &&
+        !m.content?.includes('تعذر استلام') &&
+        !m.content?.includes('جاري التفكير')
+    );
 
     const userMsg: Message = {
       id: `usr-${Date.now()}`,
@@ -100,7 +117,7 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
     };
 
-    const updatedMessages = [...messages, userMsg];
+    const updatedMessages = [...currentList, userMsg];
     setMessages([...updatedMessages, initialModelMsg]);
     setIsLoading(true);
 
@@ -108,7 +125,7 @@ export default function App() {
     abortControllerRef.current = abortController;
 
     try {
-      // Prepare messages payload, filtering out introductory model message
+      // Prepare payload: filter welcome-msg and only send real conversations
       const chatPayload = updatedMessages
         .filter((m) => m.id !== 'welcome-msg')
         .map((m) => ({
@@ -116,12 +133,37 @@ export default function App() {
           content: m.content,
         }));
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chatPayload }),
-        signal: abortController.signal,
-      });
+      // Send request with automatic 1-retry fallback
+      let response: Response;
+      try {
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: chatPayload }),
+          signal: abortController.signal,
+        });
+
+        // If transient 500 or 503, retry once after 800ms
+        if (!response.ok && (response.status === 500 || response.status === 503)) {
+          await new Promise((r) => setTimeout(r, 800));
+          response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: chatPayload }),
+            signal: abortController.signal,
+          });
+        }
+      } catch (networkErr: any) {
+        if (networkErr.name === 'AbortError') throw networkErr;
+        // Retry once on network blip
+        await new Promise((r) => setTimeout(r, 800));
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: chatPayload }),
+          signal: abortController.signal,
+        });
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -169,12 +211,17 @@ export default function App() {
   };
 
   const handleRetryLast = () => {
-    // Find the last user message
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    // Find the last real user message
+    const cleanList = messages.filter(
+      (m) =>
+        !m.content?.startsWith('⚠️') &&
+        !m.content?.includes('تعذر استلام') &&
+        !m.content?.includes('جاري التفكير')
+    );
+    const lastUserMsg = [...cleanList].reverse().find((m) => m.role === 'user');
     if (lastUserMsg) {
-      // Remove the last model error message and re-send
-      setMessages((prev) => prev.slice(0, -1));
-      handleSendMessage(lastUserMsg.content);
+      // Re-send with clean list
+      handleSendMessage(lastUserMsg.content, cleanList.filter((m) => m.id !== lastUserMsg.id));
     }
   };
 
@@ -262,7 +309,7 @@ export default function App() {
           <div className="flex justify-center pt-1">
             <button
               onClick={handleRetryLast}
-              className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-400 rounded-xl shadow transition"
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-400 rounded-xl shadow transition cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>إعادة المحاولة الآن</span>

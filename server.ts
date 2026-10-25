@@ -57,7 +57,9 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         m &&
         m.content &&
         m.content.trim() !== '' &&
-        !m.content.includes('عذراً، حدث انقطاع')
+        !m.content.includes('عذراً، حدث انقطاع') &&
+        !m.content.includes('تعذر استلام') &&
+        !m.content.startsWith('⚠️')
     );
 
     // CRITICAL: Gemini multi-turn conversation MUST start with a 'user' turn!
