@@ -7,7 +7,7 @@ interface VoiceModalProps {
   onNewMessagePair: (userText: string, modelText: string) => void;
 }
 
-type VoiceState = 'idle' | 'listening' | 'processing' | 'speaking';
+type VoiceState = 'listening' | 'processing' | 'speaking' | 'idle';
 
 const QUICK_VOICE_QUESTIONS = [
   'ما هي معادلة المحاسبة الأساسية وماذا تمثل؟',
@@ -20,12 +20,12 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   onClose,
   onNewMessagePair,
 }) => {
-  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceState, setVoiceState] = useState<VoiceState>('listening');
   const [userTranscript, setUserTranscript] = useState('');
   const [modelResponse, setModelResponse] = useState('');
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
-  const [seconds, setSeconds] = useState(0);
+  const [callDuration, setCallDuration] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -33,17 +33,33 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const timerRef = useRef<any>(null);
+  const callTimerRef = useRef<any>(null);
   const silenceTimerRef = useRef<any>(null);
   const isClosingRef = useRef(false);
   const liveTranscriptRef = useRef('');
 
+  // When modal opens: START LISTENING IMMEDIATELY! (Direct Live Conversation)
   useEffect(() => {
     if (isOpen) {
       isClosingRef.current = false;
       setUserTranscript('');
       setErrorMessage('');
-      setModelResponse('أهلاً بك! أنا «البوب». اضغط على المايك وتحدث فوراً، وسأجيبك صوتياً في ثانية واحدة.');
+      setModelResponse('مرحباً بك في المحادثة المباشرة! أنا «البوب» وأستمع إليك الآن.. تفضل بالتحدث مباشرة.');
+      setCallDuration(0);
+
+      // Start call timer
+      callTimerRef.current = setInterval(() => {
+        setCallDuration((s) => s + 1);
+      }, 1000);
+
+      // START LISTENING DIRECTLY UPON OPENING!
+      const startTimer = setTimeout(() => {
+        startListening();
+      }, 150);
+
+      return () => {
+        clearTimeout(startTimer);
+      };
     } else {
       isClosingRef.current = true;
       stopAll();
@@ -57,7 +73,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
 
@@ -86,7 +102,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setVolumeLevel(0);
   };
 
-  // Start recording voice with direct user gesture
+  // Start listening immediately
   const startListening = async () => {
     if (isClosingRef.current) return;
     setErrorMessage('');
@@ -100,6 +116,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setErrorMessage('المتصفح لا يدعم الوصول المباشر للمايك.');
+        setVoiceState('idle');
         return;
       }
 
@@ -112,7 +129,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         },
       });
 
-      // 2. Set up Web Audio volume meter for live feedback
+      // 2. Set up Web Audio volume meter for live visual feedback
       try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
@@ -137,13 +154,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             const currentVol = Math.min(100, Math.round((avg / 128) * 100));
             setVolumeLevel(currentVol);
 
-            // Auto-submit on silence: when user stops talking after having spoken
-            if (liveTranscriptRef.current.trim().length > 3) {
-              if (currentVol < 10) {
+            // Continuous Hands-Free VAD:
+            // When user speaks and then stays silent for 1.2s -> automatically submit and answer!
+            if (liveTranscriptRef.current.trim().length > 2) {
+              if (currentVol < 12) {
                 if (!silenceTimerRef.current) {
                   silenceTimerRef.current = setTimeout(() => {
                     stopListeningAndSubmit();
-                  }, 1400); // 1.4s of silence triggers auto-answer!
+                  }, 1200);
                 }
               } else {
                 if (silenceTimerRef.current) {
@@ -161,7 +179,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         console.warn('Analyser not available:', e);
       }
 
-      // 3. Set up SpeechRecognition with auto-submit on end
+      // 3. Set up SpeechRecognition with auto-submit on speech end
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -169,7 +187,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         try {
           const recognition = new SpeechRecognition();
           recognition.lang = 'ar-EG';
-          recognition.continuous = false; // Ends automatically when user stops speaking!
+          recognition.continuous = false;
           recognition.interimResults = true;
 
           recognition.onresult = (event: any) => {
@@ -184,7 +202,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           };
 
           recognition.onspeechend = () => {
-            // When user finishes speaking, auto-submit!
             setTimeout(() => {
               stopListeningAndSubmit();
             }, 300);
@@ -207,7 +224,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }
       }
 
-      // 4. MediaRecorder as parallel audio stream
+      // 4. MediaRecorder parallel stream for fallback
       audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -231,14 +248,12 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
         if (isClosingRef.current) return;
 
-        // If we already have the transcript from speech recognition, submit it immediately!
         const recognized = liveTranscriptRef.current.trim();
         if (recognized.length > 1) {
           submitQuestion(recognized);
           return;
         }
 
-        // Otherwise transcribe recorded blob
         const finalBlob = new Blob(audioChunksRef.current, {
           type: mediaRecorder.mimeType || 'audio/webm',
         });
@@ -246,31 +261,23 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         if (finalBlob.size > 0) {
           transcribeAndSubmit(finalBlob);
         } else {
-          setVoiceState('idle');
-          setErrorMessage('لم يتم التقاط أي صوت، يرجى التحدث بوضوح في المايك.');
+          setVoiceState('listening');
         }
       };
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(250);
       setVoiceState('listening');
-      setSeconds(0);
-
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = setInterval(() => {
-        setSeconds((s) => s + 1);
-      }, 1000);
     } catch (err: any) {
       console.error('Mic error:', err);
       setVoiceState('idle');
       setErrorMessage(
-        'يرجى السماح بالوصول للمايك: اضغط على علامة القفل بجانب رابط الموقع واختر السماح بالمايكروفون.'
+        'يرجى السماح بالوصول للميكروفون في متصفحك لبدء المحادثة المباشرة.'
       );
     }
   };
 
   const stopListeningAndSubmit = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
     if (speechRecognitionRef.current) {
@@ -307,8 +314,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         const spoken = data.text?.trim() || '';
 
         if (!spoken) {
-          setVoiceState('idle');
-          setErrorMessage('لم يتم تمييز الكلام. يرجى التحدث مرة أخرى بوضوح أو استخدام الأسئلة السريعة.');
+          // If no sound recognized, resume listening immediately
+          startListening();
           return;
         }
 
@@ -317,12 +324,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       };
     } catch (e) {
       console.error('Transcribe error:', e);
-      setVoiceState('idle');
-      setErrorMessage('حدث خطأ أثناء معالجة الصوت.');
+      startListening();
     }
   };
 
-  // Submit question and speak answer with ultra-fast speed
+  // Submit question and speak answer with sub-second turnaround
   const submitQuestion = async (queryText: string) => {
     setVoiceState('processing');
 
@@ -349,10 +355,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Arabic voice synthesis
+  // Speak aloud in Arabic voice AND RESUME LISTENING AUTOMATICALLY!
   const speakAnswer = (text: string) => {
     if (!('speechSynthesis' in window)) {
-      setVoiceState('idle');
+      setVoiceState('listening');
+      startListening();
       return;
     }
 
@@ -372,14 +379,31 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     const arVoice = voices.find((v) => v.lang.startsWith('ar'));
     if (arVoice) utterance.voice = arVoice;
 
+    // WHEN ELBOB FINISHES SPEAKING: AUTOMATICALLY RESUME LISTENING HANDS-FREE!
     utterance.onend = () => {
-      setVoiceState('idle');
+      if (!isClosingRef.current) {
+        setTimeout(() => {
+          if (!isClosingRef.current) {
+            startListening();
+          }
+        }, 350);
+      }
     };
+
     utterance.onerror = () => {
-      setVoiceState('idle');
+      if (!isClosingRef.current) {
+        startListening();
+      }
     };
 
     window.speechSynthesis.speak(utterance);
+  };
+
+  // Format call duration MM:SS
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   if (!isOpen) return null;
@@ -387,69 +411,75 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/95 backdrop-blur-xl animate-fade-in">
       <div className="relative w-full max-w-lg h-[90vh] max-h-[740px] bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 sm:p-6 flex flex-col justify-between shadow-2xl overflow-hidden">
-        {/* Top Header */}
+        {/* Top Header: Live Call Status */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-3 h-3 rounded-full ${
-                voiceState === 'listening'
-                  ? 'bg-rose-500 animate-ping'
-                  : voiceState === 'speaking'
-                  ? 'bg-emerald-400 animate-pulse'
-                  : 'bg-emerald-500'
-              }`}
-            />
-            <h3 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
-              محادثة صوتية مباشرة مع «البوب»
-            </h3>
+          <div className="flex items-center gap-2.5">
+            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+            <div>
+              <h3 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
+                مكالمة صوتية مباشرة مع «البوب»
+              </h3>
+              <span className="text-[11px] text-emerald-400 font-mono">
+                مباشر • {formatTime(callDuration)}
+              </span>
+            </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
-            title="إغلاق المحادثة الصوتية"
+            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            title="إنهاء المكالمة"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Center Orb & Animated Volume Visualizer */}
-        <div className="my-auto flex flex-col items-center justify-center space-y-4">
+        <div className="my-auto flex flex-col items-center justify-center space-y-5">
           <div className="relative flex items-center justify-center">
             {/* Glowing outer aura */}
             <div
-              className={`absolute w-44 h-44 rounded-full transition-all duration-300 ${
+              className={`absolute w-48 h-48 rounded-full transition-all duration-300 ${
                 voiceState === 'listening'
                   ? 'bg-rose-500/25 scale-125 animate-ping'
                   : voiceState === 'speaking'
-                  ? 'bg-emerald-500/25 scale-125 animate-pulse'
+                  ? 'bg-emerald-500/30 scale-125 animate-pulse'
                   : voiceState === 'processing'
-                  ? 'bg-sky-500/25 scale-110 animate-spin'
+                  ? 'bg-sky-500/30 scale-110 animate-spin'
                   : 'bg-emerald-500/10 scale-100'
               }`}
             />
 
-            {/* Main Interactive Mic Button */}
+            {/* Main Interactive Mic Button: Tap to interrupt or toggle */}
             <button
-              onClick={voiceState === 'listening' ? stopListeningAndSubmit : startListening}
-              className={`relative w-32 sm:w-36 h-32 sm:h-36 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 border-2 cursor-pointer ${
+              onClick={() => {
+                if (voiceState === 'speaking') {
+                  if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  startListening();
+                } else if (voiceState === 'listening') {
+                  stopListeningAndSubmit();
+                } else if (voiceState === 'idle') {
+                  startListening();
+                }
+              }}
+              className={`relative w-36 sm:w-40 h-36 sm:h-40 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 border-2 cursor-pointer ${
                 voiceState === 'listening'
-                  ? 'bg-gradient-to-tr from-rose-600 to-amber-500 border-rose-400 shadow-rose-950/60 scale-105'
+                  ? 'bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 border-rose-400 shadow-rose-950/60 scale-105'
                   : voiceState === 'speaking'
-                  ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-emerald-400 border-emerald-300 shadow-emerald-950/60 scale-105'
+                  ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-emerald-400 border-emerald-300 shadow-emerald-950/60 scale-105 animate-pulse'
                   : voiceState === 'processing'
                   ? 'bg-gradient-to-tr from-sky-600 to-indigo-600 border-sky-400 shadow-sky-950/60'
-                  : 'bg-gradient-to-tr from-emerald-700 to-teal-800 border-emerald-400 shadow-lg hover:scale-105'
+                  : 'bg-gradient-to-tr from-emerald-700 to-teal-800 border-emerald-400 shadow-lg'
               }`}
             >
               {voiceState === 'listening' ? (
-                <Mic className="w-12 sm:w-14 h-12 sm:h-14 text-white animate-bounce" />
+                <Mic className="w-14 sm:w-16 h-14 sm:h-16 text-white animate-bounce" />
               ) : voiceState === 'speaking' ? (
-                <Volume2 className="w-12 sm:w-14 h-12 sm:h-14 text-white animate-pulse" />
+                <Volume2 className="w-14 sm:w-16 h-14 sm:h-16 text-white animate-pulse" />
               ) : voiceState === 'processing' ? (
-                <Sparkles className="w-10 sm:w-12 h-10 sm:h-12 text-white animate-spin" />
+                <Sparkles className="w-12 sm:w-14 h-12 sm:h-14 text-white animate-spin" />
               ) : (
-                <Mic className="w-12 sm:w-14 h-12 sm:h-14 text-white" />
+                <Mic className="w-14 sm:w-16 h-14 sm:h-16 text-white" />
               )}
             </button>
           </div>
@@ -468,33 +498,33 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 );
               })}
               <span className="text-[11px] text-rose-300 mr-2 font-mono">
-                {volumeLevel > 5 ? 'المايك يلتقط صوتك بنجاح' : 'تحدث الآن...'}
+                {volumeLevel > 5 ? 'المايك يستمع إليك الآن' : 'تحدث الآن...'}
               </span>
             </div>
           )}
 
           {/* Status Label */}
           <div className="text-center space-y-1">
-            <span className="text-sm font-bold tracking-wider text-slate-200 block">
-              {voiceState === 'listening' && `البوب يستمع إليك (${seconds} ثانية)...`}
-              {voiceState === 'processing' && 'البوب يجيبك فوراً...'}
-              {voiceState === 'speaking' && 'البوب يشرح لك الإجابة صوتياً...'}
-              {voiceState === 'idle' && 'اضغط على الدائرة الخضراء وتحدث مباشرة'}
+            <span className="text-base font-bold tracking-wider text-slate-100 block">
+              {voiceState === 'listening' && 'البوب يستمع إليك.. تفضل بالتحدث مباشرة'}
+              {voiceState === 'processing' && 'البوب يجهز لك الإجابة النموذجية فوراً...'}
+              {voiceState === 'speaking' && 'البوب يتحدث ويشرح لك الآن...'}
+              {voiceState === 'idle' && 'اضغط على الدائرة لاستئناف المكالمة'}
             </span>
             <p className="text-xs text-slate-400">
               {voiceState === 'listening'
-                ? 'تحدث، وعندما تسكت سيجيبك البوب تلقائياً في ثانية واحدة'
+                ? 'محادثة مباشرة حية: بمجرد سكوتك سيجيبك البوب صوتياً تلقائياً'
                 : voiceState === 'speaking'
-                ? 'استمع للشرح أو انقر للمقاطعة'
-                : 'أو اضغط على أي سؤال سريع بالأسفل للرد الفوري'}
+                ? 'يمكنك مقاطعة البوب في أي لحظة بالنقر على الدائرة والتحدث'
+                : 'مكالمة ذكية ومستمرة بدون الحاجة للضغط'}
             </p>
           </div>
 
           {/* Quick Voice Prompt Chips */}
-          {voiceState === 'idle' && (
+          {voiceState === 'listening' && (
             <div className="w-full space-y-1.5 pt-1">
               <span className="text-[11px] text-emerald-400/90 font-semibold block text-right">
-                💡 جرّب صوتاً بنقرة واحدة:
+                💡 أو اضغط لطرح أحد الأسئلة مباشرة:
               </span>
               <div className="flex flex-col gap-1.5">
                 {QUICK_VOICE_QUESTIONS.map((q, idx) => (
@@ -538,44 +568,43 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           )}
         </div>
 
-        {/* Bottom Actions */}
-        <div className="flex items-center justify-center gap-3 pt-3 border-t border-slate-800">
+        {/* Bottom Actions: End Call / Send */}
+        <div className="flex items-center justify-center gap-4 pt-3 border-t border-slate-800">
           {voiceState === 'listening' ? (
             <button
               onClick={stopListeningAndSubmit}
               className="px-6 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition flex items-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4 rotate-180" />
-              <span>أرسل السؤال للبوب</span>
+              <span>أرسل الآن</span>
             </button>
           ) : voiceState === 'speaking' ? (
             <button
               onClick={() => {
                 if (window.speechSynthesis) window.speechSynthesis.cancel();
-                setVoiceState('idle');
                 startListening();
               }}
               className="px-6 py-2.5 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition flex items-center gap-2 cursor-pointer"
             >
-              <span>مقاطعة وسؤال جديد</span>
+              <span>مقاطعة والتحدث</span>
             </button>
           ) : (
             <button
               onClick={startListening}
-              disabled={voiceState === 'processing'}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition flex items-center gap-2 cursor-pointer"
             >
               <Mic className="w-4 h-4" />
-              <span>تحدث مع البوب</span>
+              <span>استئناف التحدث</span>
             </button>
           )}
 
+          {/* End Call Button */}
           <button
             onClick={onClose}
-            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full transition cursor-pointer"
-            title="إنهاء المحادثة الصوتية"
+            className="p-3 bg-rose-700/80 hover:bg-rose-600 text-white rounded-full transition cursor-pointer shadow-lg active:scale-95 flex items-center justify-center"
+            title="إنهاء المكالمة"
           >
-            <PhoneOff className="w-5 h-5 text-rose-400" />
+            <PhoneOff className="w-5 h-5" />
           </button>
         </div>
       </div>
