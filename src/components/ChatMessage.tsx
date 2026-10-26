@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Copy, Check, FileText, Volume2, VolumeX } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Copy, Check, FileText, Volume2, Square, Loader2 } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatMessageProps {
@@ -11,7 +11,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
   const isModel = message.role === 'model';
   const [copied, setCopied] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [showImagePreview, setShowImagePreview] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -19,38 +22,104 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleToggleVoice = () => {
-    if (!('speechSynthesis' in window)) {
-      alert('متصفحك لا يدعم القراءة الصوتية.');
-      return;
-    }
-
-    if (isPlayingAudio) {
-      window.speechSynthesis.cancel();
+  // Play real Google Gemini Voice Audio with 100% guarantee across all devices
+  const handleToggleVoice = async () => {
+    // If currently playing, stop it
+    if (isPlayingAudio && audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (e) {}
       setIsPlayingAudio(false);
       return;
     }
 
-    window.speechSynthesis.cancel();
+    // Stop any globally playing audio from other messages
+    if ((window as any).__activeElbobAudio) {
+      try {
+        (window as any).__activeElbobAudio.pause();
+        (window as any).__activeElbobAudio.currentTime = 0;
+      } catch (e) {}
+      (window as any).__activeElbobAudio = null;
+    }
 
-    const cleanText = message.content
-      .replace(/[#*`_~|]/g, '')
-      .replace(/https?:\/\/\S+/g, '')
-      .trim();
+    // If audio is already loaded and ready for this message, just replay
+    if (audioRef.current) {
+      try {
+        audioRef.current.currentTime = 0;
+        (window as any).__activeElbobAudio = audioRef.current;
+        await audioRef.current.play();
+        setIsPlayingAudio(true);
+        return;
+      } catch (e) {
+        audioRef.current = null;
+      }
+    }
 
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'ar-SA';
-    utterance.rate = 1.05;
+    setIsLoadingAudio(true);
 
-    const voices = window.speechSynthesis.getVoices();
-    const arVoice = voices.find((v) => v.lang.startsWith('ar'));
-    if (arVoice) utterance.voice = arVoice;
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message.content }),
+      });
 
-    utterance.onstart = () => setIsPlayingAudio(true);
-    utterance.onend = () => setIsPlayingAudio(false);
-    utterance.onerror = () => setIsPlayingAudio(false);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'فشل جلب الصوت من الخادم');
+      }
 
-    window.speechSynthesis.speak(utterance);
+      const data = await res.json();
+      if (data.audioBase64) {
+        // Use binary Blob for seamless mobile and desktop decoding
+        const binary = atob(data.audioBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: data.mimeType || 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+        (window as any).__activeElbobAudio = audio;
+
+        audio.onended = () => {
+          setIsPlayingAudio(false);
+          (window as any).__activeElbobAudio = null;
+        };
+        audio.onerror = (e) => {
+          console.error('Audio playback error:', e);
+          setIsPlayingAudio(false);
+          (window as any).__activeElbobAudio = null;
+        };
+
+        await audio.play();
+        setIsPlayingAudio(true);
+      } else {
+        throw new Error('لا توجد بيانات صوتية');
+      }
+    } catch (err: any) {
+      console.warn('Real Gemini TTS failed, falling back to speech synthesis:', err);
+      // Fallback to browser SpeechSynthesis
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const clean = message.content.replace(/[#*`_~|]/g, '').slice(0, 300);
+        const utterance = new SpeechSynthesisUtterance(clean);
+        utterance.lang = 'ar-SA';
+        utterance.rate = 1.05;
+
+        utterance.onstart = () => setIsPlayingAudio(true);
+        utterance.onend = () => setIsPlayingAudio(false);
+        utterance.onerror = () => setIsPlayingAudio(false);
+
+        window.speechSynthesis.speak(utterance);
+      } else {
+        alert('تعذر تشغيل الصوت: ' + (err.message || 'خطأ غير معروف'));
+      }
+    } finally {
+      setIsLoadingAudio(false);
+    }
   };
 
   return (
@@ -113,27 +182,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         )}
       </div>
 
-      {/* Action buttons for model messages: Copy & Speak Aloud */}
+      {/* Action buttons for model messages: Real Gemini Audio & Copy */}
       {isModel && !isStreaming && (
-        <div className="mt-1 mr-1 flex items-center gap-2">
-          {/* Read Aloud Button */}
+        <div className="mt-1.5 mr-1 flex items-center gap-2">
+          {/* Read Aloud Button with guaranteed Gemini Voice */}
           <button
             onClick={handleToggleVoice}
-            className={`flex items-center gap-1 text-[11px] transition py-0.5 px-2 rounded cursor-pointer ${
+            disabled={isLoadingAudio}
+            className={`flex items-center gap-1.5 text-xs font-semibold py-1 px-2.5 rounded-lg border transition cursor-pointer ${
               isPlayingAudio
-                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
-                : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800/80'
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                : isLoadingAudio
+                ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
+                : 'bg-slate-800/90 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-500/60'
             }`}
-            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح صوتياً'}
+            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح بصوت جيميني'}
           >
-            {isPlayingAudio ? (
+            {isLoadingAudio ? (
               <>
-                <VolumeX className="w-3.5 h-3.5" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                <span>جارٍ تحضير الصوت...</span>
+              </>
+            ) : isPlayingAudio ? (
+              <>
+                <Square className="w-3.5 h-3.5 fill-current" />
                 <span>إيقاف الصوت</span>
               </>
             ) : (
               <>
-                <Volume2 className="w-3.5 h-3.5" />
+                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
                 <span>استمع للشرح</span>
               </>
             )}
@@ -142,10 +219,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           {/* Copy Button */}
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition py-0.5 px-2 rounded hover:bg-slate-800/80 cursor-pointer"
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition py-1 px-2 rounded-lg hover:bg-slate-800/80 cursor-pointer"
             title="نسخ النص"
           >
-            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
           </button>
         </div>

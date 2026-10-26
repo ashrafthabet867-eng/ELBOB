@@ -3,9 +3,77 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 const SYSTEM_INSTRUCTION = `أنت «البوب» - معلم المحاسبة المالية (الصف الثاني - البكالوريا المصرية).
 أنت تتحدث مباشرة وبسرعة فائقة مع الطالب في محادثة حية.
 قواعد الرد:
-1. أجب فوراً باختصار شديد ووضوح في 2 إلى 3 أسطر فقط.
+1. أجب فوراً باختصار شديد ووضوح في جملتين أو ثلاث أسطر فقط.
 2. اذكر الحكم المحاسبي متبوعاً بالتفسير المختصر بدقة وفق المنهج المصري.
 3. كن مشجعاً ومباشراً بدون مقدمات أو تكرار لنص السؤال.`;
+
+async function fetchGoogleArabicAudio(text: string): Promise<{ base64Audio: string; mimeType: string }> {
+  const clean = text
+    .replace(/[#*`_~|]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[()[\]{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Split into chunks under 180 characters for Google Translate TTS
+  const chunks: string[] = [];
+  const sentences = clean.split(/(?<=[.،؛؟!\n])/);
+  let current = '';
+
+  for (const sentence of sentences) {
+    if ((current + ' ' + sentence).length < 180) {
+      current += (current ? ' ' : '') + sentence;
+    } else {
+      if (current) chunks.push(current);
+      if (sentence.length < 180) {
+        current = sentence;
+      } else {
+        const words = sentence.split(' ');
+        let wordChunk = '';
+        for (const w of words) {
+          if ((wordChunk + ' ' + w).length < 180) {
+            wordChunk += (wordChunk ? ' ' : '') + w;
+          } else {
+            if (wordChunk) chunks.push(wordChunk);
+            wordChunk = w;
+          }
+        }
+        current = wordChunk;
+      }
+    }
+    if (chunks.length >= 4) break;
+  }
+  if (current && chunks.length < 4) chunks.push(current);
+  if (chunks.length === 0) chunks.push(clean.slice(0, 180));
+
+  const audioBuffers: Buffer[] = [];
+  for (const chunk of chunks) {
+    if (!chunk.trim()) continue;
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+        chunk.trim()
+      )}&tl=ar&client=tw-ob`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        audioBuffers.push(Buffer.from(arrayBuffer));
+      }
+    } catch (e) {
+      console.warn('Chunk audio fetch error:', e);
+    }
+  }
+
+  const concatenated = Buffer.concat(audioBuffers);
+  return {
+    base64Audio: concatenated.toString('base64'),
+    mimeType: 'audio/mpeg',
+  };
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -28,7 +96,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { text, audioBase64, mimeType, voiceName = 'Puck', generateAudio = false } = req.body || {};
+    const { text, audioBase64, mimeType, voiceName = 'Puck', generateAudio = true } = req.body || {};
 
     const ai = new GoogleGenAI({
       apiKey,
@@ -70,7 +138,7 @@ export default async function handler(req: any, res: any) {
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         temperature: 0.1,
-        maxOutputTokens: 200,
+        maxOutputTokens: 220,
         thinkingConfig: {
           thinkingLevel: ThinkingLevel.MINIMAL,
         },
@@ -79,20 +147,25 @@ export default async function handler(req: any, res: any) {
 
     const replyText = chatResponse.text?.trim() || 'عذراً، لم أتمكن من إعداد الإجابة، يرجى المحاولة ثانية.';
 
-    // 2. Generate Real Gemini Voice Audio only if requested
+    // 2. Generate Real Voice Audio with dual-engine fallback
     let audioWavBase64 = '';
+    let responseMimeType = 'audio/wav';
+
     if (generateAudio) {
       try {
+        const speechText = replyText
+          .replace(/[#*`_~|]/g, '')
+          .replace(/https?:\/\/\S+/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 350);
+
         const ttsResponse = await ai.models.generateContent({
           model: 'gemini-3.8-flash-lite-tts',
           contents: [
             {
               role: 'user',
-              parts: [
-                {
-                  text: replyText.replace(/[#*`_~|]/g, ''),
-                },
-              ],
+              parts: [{ text: speechText }],
             },
           ],
           config: {
@@ -108,9 +181,21 @@ export default async function handler(req: any, res: any) {
         const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.[0];
         if (audioPart?.inlineData?.data) {
           audioWavBase64 = audioPart.inlineData.data;
+          responseMimeType = 'audio/wav';
         }
       } catch (ttsErr: any) {
-        console.warn('Gemini TTS error:', ttsErr.message || ttsErr);
+        console.warn('Gemini TTS quota or error, using Google Arabic voice engine:', ttsErr?.message || ttsErr);
+      }
+
+      // If Gemini TTS didn't produce audio (quota exceeded or error), use Google Arabic voice engine
+      if (!audioWavBase64) {
+        try {
+          const fallback = await fetchGoogleArabicAudio(replyText);
+          audioWavBase64 = fallback.base64Audio;
+          responseMimeType = fallback.mimeType;
+        } catch (fallbackErr) {
+          console.error('Arabic voice fallback error:', fallbackErr);
+        }
       }
     }
 
@@ -118,6 +203,7 @@ export default async function handler(req: any, res: any) {
       userText: questionText,
       modelText: replyText,
       audioBase64: audioWavBase64,
+      mimeType: responseMimeType,
     });
   } catch (error: any) {
     console.error('Voice chat pipeline error:', error);

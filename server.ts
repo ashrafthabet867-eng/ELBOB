@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import chatHandler from './api/chat';
 import transcribeHandler from './api/transcribe';
 import voiceHandler from './api/voice';
+import ttsHandler from './api/tts';
 
 dotenv.config();
 
@@ -17,10 +18,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
-// Route to serverless handlers for 100% parity with Vercel
+// Serverless handler endpoints
 app.all('/api/chat', (req: Request, res: Response) => chatHandler(req, res));
 app.all('/api/transcribe', (req: Request, res: Response) => transcribeHandler(req, res));
 app.all('/api/voice', (req: Request, res: Response) => voiceHandler(req, res));
+app.all('/api/tts', (req: Request, res: Response) => ttsHandler(req, res));
 
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
