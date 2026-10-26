@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Volume2, Sparkles, PhoneOff, AlertCircle, Send, ArrowRight, Zap } from 'lucide-react';
+import { Mic, X, Volume2, Sparkles, PhoneOff, AlertCircle, Send, ArrowRight, Zap, Play, Square } from 'lucide-react';
 
 interface VoiceModalProps {
   isOpen: boolean;
@@ -20,18 +20,18 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   onClose,
   onNewMessagePair,
 }) => {
-  const [voiceState, setVoiceState] = useState<VoiceState>('listening');
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [userTranscript, setUserTranscript] = useState('');
   const [modelResponse, setModelResponse] = useState('');
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
   const [callDuration, setCallDuration] = useState(0);
+  const [autoListenAfterSpeaking, setAutoListenAfterSpeaking] = useState(true);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const currentAudioElemRef = useRef<HTMLAudioElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const callTimerRef = useRef<any>(null);
   const silenceTimerRef = useRef<any>(null);
@@ -43,18 +43,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       isClosingRef.current = false;
       setUserTranscript('');
       setErrorMessage('');
-      setModelResponse('أهلاً بك يا بطل! أنا «البوب» معك مباشرة.. تحدث بسؤالك في أي وقت.');
+      setModelResponse('أهلاً بك! أنا «البوب». اضغط على الدائرة الخضراء وتحدث بسؤالك، وسأجيبك فوراً.');
       setCallDuration(0);
 
-      // Start call timer
+      // Unlock mobile audio policy immediately on modal open
+      unlockAudioPolicy();
+
       callTimerRef.current = setInterval(() => {
         setCallDuration((s) => s + 1);
       }, 1000);
 
-      // Start listening directly with stable configuration
+      // Start listening directly
       const startTimer = setTimeout(() => {
         startListening();
-      }, 150);
+      }, 200);
 
       return () => {
         clearTimeout(startTimer);
@@ -68,11 +70,16 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     };
   }, [isOpen]);
 
-  const stopAll = () => {
-    if (currentAudioElemRef.current) {
-      currentAudioElemRef.current.pause();
-      currentAudioElemRef.current = null;
+  // Synchronously unlock browser audio policy so future speech synthesis is never blocked by mobile Chrome/Safari
+  const unlockAudioPolicy = () => {
+    if ('speechSynthesis' in window) {
+      const dummy = new SpeechSynthesisUtterance('');
+      dummy.volume = 0;
+      window.speechSynthesis.speak(dummy);
     }
+  };
+
+  const stopAll = () => {
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -105,16 +112,15 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setVolumeLevel(0);
   };
 
-  // Start listening with high stability (continuous = true to prevent premature cuts)
+  // Start listening with high stability
   const startListening = async () => {
     if (isClosingRef.current) return;
     setErrorMessage('');
     setUserTranscript('');
     liveTranscriptRef.current = '';
 
-    if (currentAudioElemRef.current) {
-      currentAudioElemRef.current.pause();
-    }
+    unlockAudioPolicy();
+
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -134,7 +140,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         },
       });
 
-      // Set up real-time Web Audio Analyser
+      // 1. Audio Analyser for live visualizer
       try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
@@ -158,13 +164,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             const currentVol = Math.min(100, Math.round((avg / 128) * 100));
             setVolumeLevel(currentVol);
 
-            // Stable Silence Detection (generous 2.2 seconds pause so user is never cut off while thinking)
+            // Stable Silence Detection (2.0 seconds after speaking)
             if (liveTranscriptRef.current.trim().length > 3) {
-              if (currentVol < 12) {
+              if (currentVol < 10) {
                 if (!silenceTimerRef.current) {
                   silenceTimerRef.current = setTimeout(() => {
                     stopListeningAndSubmit();
-                  }, 2200);
+                  }, 2000);
                 }
               } else {
                 if (silenceTimerRef.current) {
@@ -179,10 +185,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           updateVolume();
         }
       } catch (e) {
-        console.warn('AudioContext Analyser:', e);
+        console.warn('Audio analyser error:', e);
       }
 
-      // Stable Continuous Speech Recognition
+      // 2. SpeechRecognition (Continuous mode to prevent premature cuts)
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -190,7 +196,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         try {
           const recognition = new SpeechRecognition();
           recognition.lang = 'ar-EG';
-          recognition.continuous = true; // DO NOT cut off mid-sentence!
+          recognition.continuous = true;
           recognition.interimResults = true;
 
           recognition.onresult = (event: any) => {
@@ -205,17 +211,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           };
 
           recognition.onerror = (e: any) => {
-            console.warn('SpeechRecognition error notice:', e);
+            console.warn('SpeechRecognition error:', e);
           };
 
           recognition.start();
           speechRecognitionRef.current = recognition;
         } catch (e) {
-          console.warn('SpeechRecognition error:', e);
+          console.warn('SpeechRecognition start failed:', e);
         }
       }
 
-      // MediaRecorder parallel capture
+      // 3. MediaRecorder capture
       audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -321,7 +327,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       setModelResponse(modelText);
       onNewMessagePair(userText, modelText);
 
-      // Speak immediately with ZERO-DELAY Arabic speech synthesis
+      // Speak immediately with Zero-Delay Arabic speech synthesis
       speakImmediateVoice(modelText);
     } catch (err: any) {
       console.error('Voice turn error:', err);
@@ -330,7 +336,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Zero-Delay Instant Arabic Voice Playback
+  // Instant Zero-Delay Arabic Voice Playback
   const speakImmediateVoice = (text: string) => {
     setVoiceState('speaking');
 
@@ -341,7 +347,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     window.speechSynthesis.cancel();
 
-    // Clean text from symbols
     const cleanSpoken = text.replace(/[#*`_~|]/g, '').trim();
     const utterance = new SpeechSynthesisUtterance(cleanSpoken);
     utterance.lang = 'ar-SA';
@@ -351,7 +356,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     const arVoice = voices.find((v) => v.lang.startsWith('ar'));
     if (arVoice) utterance.voice = arVoice;
 
-    // Simulate animated audio visualizer waves during speech
+    // Simulate active audio wave
     const volInterval = setInterval(() => {
       setVolumeLevel(Math.round(35 + Math.random() * 50));
     }, 100);
@@ -361,8 +366,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       setVolumeLevel(0);
       setVoiceState('idle');
 
-      // Seamless auto-resume with 600ms safety buffer to prevent echo
-      if (!isClosingRef.current) {
+      // Auto-resume listening hands-free if enabled
+      if (!isClosingRef.current && autoListenAfterSpeaking) {
         setTimeout(() => {
           if (!isClosingRef.current) startListening();
         }, 600);
@@ -373,7 +378,6 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       clearInterval(volInterval);
       setVolumeLevel(0);
       setVoiceState('idle');
-      if (!isClosingRef.current) startListening();
     };
 
     window.speechSynthesis.speak(utterance);
@@ -442,6 +446,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             {/* Main Interactive Button: Click anytime to toggle */}
             <button
               onClick={() => {
+                unlockAudioPolicy();
                 if (voiceState === 'speaking') {
                   if (window.speechSynthesis) window.speechSynthesis.cancel();
                   startListening();
@@ -498,11 +503,11 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               {voiceState === 'listening' && 'البوب يستمع إليك.. تفضل بالتحدث براحتك'}
               {voiceState === 'processing' && 'جاري الرد الفوري الآن... ⚡'}
               {voiceState === 'speaking' && '«البوب» يجيبك الآن بصوت واضح...'}
-              {voiceState === 'idle' && 'اضغط على الدائرة للبدء'}
+              {voiceState === 'idle' && 'اضغط على الدائرة الخضراء وتحدث مباشرة'}
             </span>
             <p className="text-xs text-slate-400">
               {voiceState === 'listening'
-                ? 'تحدث، وعندما تنتهي اضغط «أجب الآن» أو توقف ثوانٍ وسيجيبك فوراً'
+                ? 'تحدث، وعندما تنتهي اضغط «أجب الآن يا بوب» أو توقف ثانيتين'
                 : voiceState === 'speaking'
                 ? 'انقر على الدائرة لمقاطعة الرد وطرح سؤال جديد'
                 : 'محادثة صوتية سريعة ومستقرة بدون أي انقطاع'}
@@ -520,6 +525,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                   <button
                     key={idx}
                     onClick={() => {
+                      unlockAudioPolicy();
                       setUserTranscript(q);
                       executeVoiceTurn({ text: q });
                     }}
@@ -566,7 +572,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div className="flex items-center gap-3">
             {voiceState === 'listening' ? (
               <button
-                onClick={stopListeningAndSubmit}
+                onClick={() => {
+                  unlockAudioPolicy();
+                  stopListeningAndSubmit();
+                }}
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-full shadow-lg transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5 rotate-180" />
@@ -575,6 +584,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             ) : voiceState === 'speaking' ? (
               <button
                 onClick={() => {
+                  unlockAudioPolicy();
                   if (window.speechSynthesis) window.speechSynthesis.cancel();
                   startListening();
                 }}
@@ -584,7 +594,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
               </button>
             ) : (
               <button
-                onClick={startListening}
+                onClick={() => {
+                  unlockAudioPolicy();
+                  startListening();
+                }}
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-full shadow-lg transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Mic className="w-3.5 h-3.5" />

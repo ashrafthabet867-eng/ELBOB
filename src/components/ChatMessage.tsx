@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, FileText, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { Copy, Check, FileText, Volume2, VolumeX } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatMessageProps {
@@ -10,6 +10,7 @@ interface ChatMessageProps {
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
   const isModel = message.role === 'model';
   const [copied, setCopied] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showImagePreview, setShowImagePreview] = useState(false);
 
   const handleCopy = () => {
@@ -18,8 +19,42 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleToggleVoice = () => {
+    if (!('speechSynthesis' in window)) {
+      alert('متصفحك لا يدعم القراءة الصوتية.');
+      return;
+    }
+
+    if (isPlayingAudio) {
+      window.speechSynthesis.cancel();
+      setIsPlayingAudio(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const cleanText = message.content
+      .replace(/[#*`_~|]/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'ar-SA';
+    utterance.rate = 1.05;
+
+    const voices = window.speechSynthesis.getVoices();
+    const arVoice = voices.find((v) => v.lang.startsWith('ar'));
+    if (arVoice) utterance.voice = arVoice;
+
+    utterance.onstart = () => setIsPlayingAudio(true);
+    utterance.onend = () => setIsPlayingAudio(false);
+    utterance.onerror = () => setIsPlayingAudio(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   return (
-    <div className={`flex flex-col my-4 ${isModel ? 'items-start' : 'items-end'}`}>
+    <div className={`flex flex-col my-3.5 ${isModel ? 'items-start' : 'items-end'}`}>
       {/* Sender Header */}
       <div className="flex items-center gap-2 mb-1 px-1 text-xs">
         {isModel ? (
@@ -78,16 +113,42 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         )}
       </div>
 
-      {/* Copy button for model messages */}
+      {/* Action buttons for model messages: Copy & Speak Aloud */}
       {isModel && !isStreaming && (
-        <button
-          onClick={handleCopy}
-          className="mt-1 mr-1 flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition py-0.5 px-2 rounded hover:bg-slate-800/80"
-          title="نسخ النص"
-        >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-          <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
-        </button>
+        <div className="mt-1 mr-1 flex items-center gap-2">
+          {/* Read Aloud Button */}
+          <button
+            onClick={handleToggleVoice}
+            className={`flex items-center gap-1 text-[11px] transition py-0.5 px-2 rounded cursor-pointer ${
+              isPlayingAudio
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
+                : 'text-slate-400 hover:text-emerald-400 hover:bg-slate-800/80'
+            }`}
+            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح صوتياً'}
+          >
+            {isPlayingAudio ? (
+              <>
+                <VolumeX className="w-3.5 h-3.5" />
+                <span>إيقاف الصوت</span>
+              </>
+            ) : (
+              <>
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>استمع للشرح</span>
+              </>
+            )}
+          </button>
+
+          {/* Copy Button */}
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition py-0.5 px-2 rounded hover:bg-slate-800/80 cursor-pointer"
+            title="نسخ النص"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
+          </button>
+        </div>
       )}
 
       {/* Lightbox Image Preview Modal */}
