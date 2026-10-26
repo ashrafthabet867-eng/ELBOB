@@ -43,7 +43,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       isClosingRef.current = false;
       setUserTranscript('');
       setErrorMessage('');
-      setModelResponse('أهلاً بك! أنا «البوب». اضغط على المايك بالأسفل وتفضل بطرح سؤالك صوتياً، أو اختر سؤالاً جاهزاً.');
+      setModelResponse('أهلاً بك! أنا «البوب». اضغط على المايك وتحدث فوراً، وسأجيبك صوتياً في ثانية واحدة.');
     } else {
       isClosingRef.current = true;
       stopAll();
@@ -86,7 +86,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     setVolumeLevel(0);
   };
 
-  // Start recording voice with direct user click
+  // Start recording voice with direct user gesture
   const startListening = async () => {
     if (isClosingRef.current) return;
     setErrorMessage('');
@@ -112,7 +112,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         },
       });
 
-      // 2. Set up Web Audio volume meter to show real visual wave
+      // 2. Set up Web Audio volume meter for live feedback
       try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
@@ -137,14 +137,20 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             const currentVol = Math.min(100, Math.round((avg / 128) * 100));
             setVolumeLevel(currentVol);
 
-            // Silence detection: if user spoke then paused for 2.5s, auto-send
-            if (currentVol > 12 && liveTranscriptRef.current.length > 3) {
-              if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-              silenceTimerRef.current = setTimeout(() => {
-                if (voiceState === 'listening' && liveTranscriptRef.current.trim()) {
-                  stopListening();
+            // Auto-submit on silence: when user stops talking after having spoken
+            if (liveTranscriptRef.current.trim().length > 3) {
+              if (currentVol < 10) {
+                if (!silenceTimerRef.current) {
+                  silenceTimerRef.current = setTimeout(() => {
+                    stopListeningAndSubmit();
+                  }, 1400); // 1.4s of silence triggers auto-answer!
                 }
-              }, 2500);
+              } else {
+                if (silenceTimerRef.current) {
+                  clearTimeout(silenceTimerRef.current);
+                  silenceTimerRef.current = null;
+                }
+              }
             }
 
             animFrameRef.current = requestAnimationFrame(updateVolume);
@@ -155,7 +161,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         console.warn('Analyser not available:', e);
       }
 
-      // 3. Set up browser SpeechRecognition for real-time live typing
+      // 3. Set up SpeechRecognition with auto-submit on end
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -163,7 +169,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         try {
           const recognition = new SpeechRecognition();
           recognition.lang = 'ar-EG';
-          recognition.continuous = true;
+          recognition.continuous = false; // Ends automatically when user stops speaking!
           recognition.interimResults = true;
 
           recognition.onresult = (event: any) => {
@@ -174,6 +180,19 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             if (interim) {
               liveTranscriptRef.current = interim;
               setUserTranscript(interim);
+            }
+          };
+
+          recognition.onspeechend = () => {
+            // When user finishes speaking, auto-submit!
+            setTimeout(() => {
+              stopListeningAndSubmit();
+            }, 300);
+          };
+
+          recognition.onend = () => {
+            if (liveTranscriptRef.current.trim().length > 1) {
+              stopListeningAndSubmit();
             }
           };
 
@@ -188,7 +207,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }
       }
 
-      // 4. Set up MediaRecorder as recording stream
+      // 4. MediaRecorder as parallel audio stream
       audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -200,8 +219,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
@@ -212,13 +231,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
         if (isClosingRef.current) return;
 
-        // If SpeechRecognition already captured live words:
-        if (liveTranscriptRef.current && liveTranscriptRef.current.trim().length > 1) {
-          submitQuestion(liveTranscriptRef.current.trim());
+        // If we already have the transcript from speech recognition, submit it immediately!
+        const recognized = liveTranscriptRef.current.trim();
+        if (recognized.length > 1) {
+          submitQuestion(recognized);
           return;
         }
 
-        // Otherwise transcribe recorded blob via backend:
+        // Otherwise transcribe recorded blob
         const finalBlob = new Blob(audioChunksRef.current, {
           type: mediaRecorder.mimeType || 'audio/webm',
         });
@@ -249,9 +269,10 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  const stopListening = () => {
+  const stopListeningAndSubmit = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.stop();
@@ -264,7 +285,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Transcribe audio using backend API
+  // Transcribe recorded audio
   const transcribeAndSubmit = async (audioBlob: Blob) => {
     setVoiceState('processing');
 
@@ -301,7 +322,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Submit question and speak model answer
+  // Submit question and speak answer with ultra-fast speed
   const submitQuestion = async (queryText: string) => {
     setVoiceState('processing');
 
@@ -328,7 +349,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Speak aloud using browser speech synthesis with Arabic voice
+  // Arabic voice synthesis
   const speakAnswer = (text: string) => {
     if (!('speechSynthesis' in window)) {
       setVoiceState('idle');
@@ -345,7 +366,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
     const utterance = new SpeechSynthesisUtterance(cleanSpoken);
     utterance.lang = 'ar-SA';
-    utterance.rate = 1.0;
+    utterance.rate = 1.05;
 
     const voices = window.speechSynthesis.getVoices();
     const arVoice = voices.find((v) => v.lang.startsWith('ar'));
@@ -393,7 +414,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         </div>
 
         {/* Center Orb & Animated Volume Visualizer */}
-        <div className="my-auto flex flex-col items-center justify-center space-y-5">
+        <div className="my-auto flex flex-col items-center justify-center space-y-4">
           <div className="relative flex items-center justify-center">
             {/* Glowing outer aura */}
             <div
@@ -410,7 +431,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
             {/* Main Interactive Mic Button */}
             <button
-              onClick={voiceState === 'listening' ? stopListening : startListening}
+              onClick={voiceState === 'listening' ? stopListeningAndSubmit : startListening}
               className={`relative w-32 sm:w-36 h-32 sm:h-36 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 border-2 cursor-pointer ${
                 voiceState === 'listening'
                   ? 'bg-gradient-to-tr from-rose-600 to-amber-500 border-rose-400 shadow-rose-950/60 scale-105'
@@ -456,22 +477,22 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           <div className="text-center space-y-1">
             <span className="text-sm font-bold tracking-wider text-slate-200 block">
               {voiceState === 'listening' && `البوب يستمع إليك (${seconds} ثانية)...`}
-              {voiceState === 'processing' && 'البوب يحلل سؤالك ويجهز الإجابة النموذجية...'}
+              {voiceState === 'processing' && 'البوب يجيبك فوراً...'}
               {voiceState === 'speaking' && 'البوب يشرح لك الإجابة صوتياً...'}
               {voiceState === 'idle' && 'اضغط على الدائرة الخضراء وتحدث مباشرة'}
             </span>
             <p className="text-xs text-slate-400">
               {voiceState === 'listening'
-                ? 'تحدث بسؤالك، ثم اضغط على الدائرة لطلب الإجابة فوراً'
+                ? 'تحدث، وعندما تسكت سيجيبك البوب تلقائياً في ثانية واحدة'
                 : voiceState === 'speaking'
                 ? 'استمع للشرح أو انقر للمقاطعة'
-                : 'أو جرّب أحد الأسئلة السريعة أدناه بنقرة واحدة'}
+                : 'أو اضغط على أي سؤال سريع بالأسفل للرد الفوري'}
             </p>
           </div>
 
-          {/* Quick Voice Prompt Chips (Immediate 1-click test) */}
+          {/* Quick Voice Prompt Chips */}
           {voiceState === 'idle' && (
-            <div className="w-full space-y-1.5 pt-2">
+            <div className="w-full space-y-1.5 pt-1">
               <span className="text-[11px] text-emerald-400/90 font-semibold block text-right">
                 💡 جرّب صوتاً بنقرة واحدة:
               </span>
@@ -521,7 +542,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         <div className="flex items-center justify-center gap-3 pt-3 border-t border-slate-800">
           {voiceState === 'listening' ? (
             <button
-              onClick={stopListening}
+              onClick={stopListeningAndSubmit}
               className="px-6 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition flex items-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4 rotate-180" />

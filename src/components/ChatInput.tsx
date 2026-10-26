@@ -25,6 +25,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const speechRecognitionRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
+  const liveTranscriptRef = useRef('');
 
   // Auto-resize textarea
   useEffect(() => {
@@ -79,13 +80,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     e.target.value = '';
   };
 
-  // Dual Audio Recording: Real-time SpeechRecognition + MediaRecorder fallback
+  // Start recording with auto-send on completion
   const startRecording = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert('متصفحك لا يدعم تسجيل الصوت.');
         return;
       }
+
+      liveTranscriptRef.current = '';
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -95,16 +98,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         },
       });
 
-      // 1. Try real-time browser recognition
+      // 1. Try real-time browser speech recognition
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-      let recognizedLiveText = '';
       if (SpeechRecognition) {
         try {
           const rec = new SpeechRecognition();
           rec.lang = 'ar-EG';
-          rec.continuous = true;
+          rec.continuous = false;
           rec.interimResults = true;
 
           rec.onresult = (ev: any) => {
@@ -113,9 +115,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               res += ev.results[i][0].transcript;
             }
             if (res) {
-              recognizedLiveText = res;
-              setInput((prev) => (prev ? `${prev} ${res}` : res));
+              liveTranscriptRef.current = res;
+              setInput(res);
             }
+          };
+
+          rec.onspeechend = () => {
+            stopRecordingAndSend();
           };
 
           rec.start();
@@ -125,7 +131,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }
       }
 
-      // 2. MediaRecorder for Gemini Transcribe fallback
+      // 2. MediaRecorder as parallel audio stream
       audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -143,9 +149,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        setIsRecording(false);
 
-        // If SpeechRecognition already gave us text, we're done!
-        if (recognizedLiveText.trim().length > 1) {
+        const recognized = liveTranscriptRef.current.trim();
+        if (recognized.length > 1) {
+          // AUTO-SEND THE MESSAGE DIRECTLY!
+          onSendMessage(recognized, attachment || undefined);
+          setInput('');
+          setAttachment(null);
           return;
         }
 
@@ -170,10 +181,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               });
 
               const data = await res.json();
-              if (data.text) {
-                setInput((prev) => (prev ? `${prev} ${data.text}` : data.text));
-              } else if (data.error) {
-                alert(`تعذر التقاط الصوت: ${data.error}`);
+              if (data.text && data.text.trim()) {
+                // AUTO-SEND THE TRANSCRIBED MESSAGE DIRECTLY!
+                onSendMessage(data.text.trim(), attachment || undefined);
+                setInput('');
+                setAttachment(null);
               }
               setIsTranscribing(false);
             };
@@ -194,12 +206,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       }, 1000);
     } catch (err: any) {
       console.error('Mic access error:', err);
-      alert('تعذر الوصول إلى الميكروفون. يرجى التأكد من السماح بالوصول للميكروفون في المتصفح.');
       setIsRecording(false);
     }
   };
 
-  const stopRecording = () => {
+  const stopRecordingAndSend = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (speechRecognitionRef.current) {
       try {
@@ -210,15 +221,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       try {
         mediaRecorderRef.current.stop();
       } catch (e) {}
-    }
-    setIsRecording(false);
-  };
-
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
     }
   };
 
@@ -265,13 +267,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <div className="flex items-center justify-between bg-rose-950/60 border border-rose-500/40 rounded-xl px-3.5 py-1.5 text-xs text-rose-300 animate-pulse">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <span>المايك يستمع... ({recordingSeconds} ثانية)</span>
+              <span>المايك يستمع... ({recordingSeconds} ث) - انقر لطلب الإجابة فوراً</span>
             </div>
             <button
-              onClick={stopRecording}
-              className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 px-2.5 py-1 rounded-lg transition cursor-pointer"
+              onClick={stopRecordingAndSend}
+              className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg transition cursor-pointer"
             >
-              تم، حوّل إلى نص
+              أرسل السؤال الآن
             </button>
           </div>
         )}
@@ -279,7 +281,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {isTranscribing && (
           <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 text-xs text-emerald-300">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-            <span>جارٍ تفريغ الصوت بدقة عالية...</span>
+            <span>جارٍ إرسال السؤال والإجابة فوراً...</span>
           </div>
         )}
 
@@ -305,14 +307,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           {/* Microphone Button */}
           <button
             type="button"
-            onClick={toggleRecording}
+            onClick={isRecording ? stopRecordingAndSend : startRecording}
             disabled={isTranscribing}
             className={`p-2.5 rounded-xl transition shrink-0 cursor-pointer ${
               isRecording
                 ? 'bg-rose-600 text-white animate-pulse'
                 : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/60'
             }`}
-            title={isRecording ? 'إيقاف التسجيل' : 'إملاء صوتي بالمايك'}
+            title={isRecording ? 'إنهاء وإرسال السؤال' : 'تحدث بالمايك للإرسال التلقائي'}
           >
             <Mic className="w-5 h-5" />
           </button>
@@ -327,7 +329,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             placeholder={
               attachment
                 ? 'أضف استفساراً مع المرفق (اختياري)...'
-                : 'اكتب سؤالك أو أرفق صورة المسألة...'
+                : 'اكتب سؤالك أو تحدث بالمايك وسيجيبك البوب فوراً...'
             }
             className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm resize-none focus:outline-none p-1.5 leading-relaxed"
           />

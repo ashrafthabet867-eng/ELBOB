@@ -3,18 +3,13 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 const SYSTEM_INSTRUCTION = `أنت تطبيق "البوب" - المساعد الذكي لمادة المحاسبة المالية (الصف الثاني - البكالوريا المصرية).
 أنت مقيّد حصرياً بالمنهج المصري والملفات المعتمدة (الجزء الأول: الوحدات 1-5، والجزء الثاني: الوحدات 6-10).
 
-قواعد الإجابة النموذجية المعتمدة (JRE - التفسير المدعوم بالأدلة):
-1. في الأسئلة المباشرة والمراجعة وفقرة (فكّر):
-   - أجب بصيغة [حكم + تفسير] موجزة ومباشرة من 1-3 جمل باستخدام أدوات الربط: (لأن... لذلك... وهذا يعني أن...).
-2. في أسئلة JRE التحليلية الكبرى:
-   - اتبع الهيكل المعتمد: [مقدمة تحدد المفهوم والموقف -> الحجة الأولى -> الحجة الثانية أو المضادة والرد عليها -> خاتمة بحكم مبرر متوازن].
-3. في التمارين والعمليات الحسابية والصور/الملفات المرفقة:
-   - إذا أرفق الطالب صورة تمرين أو صفحة من الكتاب أو مسألة في ملف: استخرج أرقامها وبياناتها فوراً وقدّم التمهيد الحسابي الرياضي بدقة.
-   - قيود اليومية منسقة بدقة: من حـ/ ... إلى حـ/ ... مع المبالغ والشرح.
-   - حسابات الأستاذ حرف T والترصيد، وميزان المراجعة، ومذكرة تسوية البنك، والقوائم المالية (المتاجرة، أ.خ، المركز المالي) بدقة تامة.
-4. الأسلوب:
-   - ابدأ بالحل مباشرة بدون مقدمات فارغة أو تكرار لنص السؤال.
-   - لغة عربية فصحى واضحة وعبارات محاسبية معتمدة في المنهج المصري.`;
+قواعد الإجابة النموذجية الفورية (JRE - التفسير المدعوم بالأدلة):
+1. ابدأ بالإجابة المباشرة فوراً بدون أي مقدمات أو تكرار لنص السؤال.
+2. في الأسئلة المباشرة والمراجعة وفقرة (فكّر):
+   - أجب بصيغة [حكم + تفسير] موجزة ودقيقة في 2-4 أسطر باستخدام أدوات الربط: (لأن... لذلك... وهذا يعني أن...).
+3. في التمارين والعمليات الحسابية والصور/الملفات:
+   - استخرج الأرقام فوراً، وقدّم التمهيد الرياضي، وقيود اليومية منسقة (من حـ/ ... إلى حـ/ ...)، وحسابات T والقوائم المالية بدقة تامة.
+4. استخدم لغة عربية فصحى ومصطلحات المحاسبة المعتمدة في المنهج المصري.`;
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,7 +55,7 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'يجب أن تبدأ المحادثة برسالة من المستخدم' });
     }
 
-    // Convert messages to Gemini contents supporting multimodality (images & documents)
+    // Convert messages to Gemini contents supporting multimodality
     const contents: Array<{ role: 'user' | 'model'; parts: Array<any> }> = [];
     for (const msg of userStartedMessages) {
       const role: 'user' | 'model' =
@@ -68,7 +63,6 @@ export default async function handler(req: any, res: any) {
 
       const parts: any[] = [];
 
-      // Add attachment part if available
       if (role === 'user' && msg.attachment?.data) {
         parts.push({
           inlineData: {
@@ -81,7 +75,7 @@ export default async function handler(req: any, res: any) {
       const textContent =
         msg.content ||
         (msg.attachment
-          ? 'يرجى قراءة المسألة المحاسبية من المرفق وحلها حلاً نموذجياً شاملاً بالتمهيد الحسابي والقيود والقوائم المالية.'
+          ? 'يرجى حل وشرح المسألة المحاسبية من المرفق حلاً نموذجياً دقيقاً.'
           : '');
 
       if (textContent) {
@@ -104,6 +98,7 @@ export default async function handler(req: any, res: any) {
       },
     });
 
+    // Lightning-fast model with MINIMAL thinking for sub-second responses
     const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
     let replyText = '';
     let lastError = '';
@@ -115,10 +110,11 @@ export default async function handler(req: any, res: any) {
           contents,
           config: {
             systemInstruction: SYSTEM_INSTRUCTION,
-            temperature: 0.1,
-            ...(modelName.includes('3.8')
-              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-              : {}),
+            temperature: 0.2,
+            maxOutputTokens: 800,
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.MINIMAL,
+            },
           },
         });
 
@@ -128,7 +124,7 @@ export default async function handler(req: any, res: any) {
         }
       } catch (err: any) {
         lastError = err.message || String(err);
-        console.warn(`Model ${modelName} error:`, lastError);
+        console.warn(`Model ${modelName} error on Vercel:`, lastError);
       }
     }
 
