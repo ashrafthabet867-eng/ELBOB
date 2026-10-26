@@ -1,18 +1,16 @@
 import React from 'react';
-import { RotateCcw, KeyRound, Mic } from 'lucide-react';
+import { RotateCcw, Mic } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   onResetChat: () => void;
   hasMessages: boolean;
-  onLockApp: () => void;
   onOpenVoiceMode: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onResetChat,
   hasMessages,
-  onLockApp,
   onOpenVoiceMode,
 }) => {
   return (
@@ -34,7 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Dedicated Voice Chat Button */}
           <button
             onClick={onOpenVoiceMode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 cursor-pointer"
             title="فتح المحادثة الصوتية المباشرة"
           >
             <Mic className="w-3.5 h-3.5" />
@@ -44,20 +42,12 @@ export const Header: React.FC<HeaderProps> = ({
           {hasMessages && (
             <button
               onClick={onResetChat}
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
               title="محادثة جديدة"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
           )}
-
-          <button
-            onClick={onLockApp}
-            className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition"
-            title="قفل التطبيق / مفتاح الدخول"
-          >
-            <KeyRound className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </header>

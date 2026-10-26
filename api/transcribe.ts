@@ -40,20 +40,31 @@ export default async function handler(req: any, res: any) {
       },
     };
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-transcribe',
-      contents: {
-        parts: [
-          audioPart,
-          { text: 'فرّغ هذا التسجيل الصوتي بدقة تامة باللغة العربية. اكتب النص المنطوق فقط بدون أي تعليقات إضافية.' },
-        ],
-      },
-    });
+    let transcription = '';
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.5-transcribe', 'gemini-3.8-flash'];
 
-    const transcription = response.text?.trim() || '';
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            audioPart,
+            { text: 'فرّغ هذا التسجيل الصوتي بدقة تامة باللغة العربية. اكتب النص المنطوق فقط بدون أي تعليقات إضافية.' },
+          ],
+        });
+
+        if (response.text && response.text.trim()) {
+          transcription = response.text.trim();
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Transcribe model ${modelName} error:`, err.message || err);
+      }
+    }
+
     return res.status(200).json({ text: transcription });
   } catch (error: any) {
-    console.error('Vercel transcribe error:', error);
+    console.error('Transcribe endpoint error:', error);
     return res.status(500).json({ error: error.message || 'فشل تفريغ الصوت' });
   }
 }
