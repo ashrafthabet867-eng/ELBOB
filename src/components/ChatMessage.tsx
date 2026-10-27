@@ -137,7 +137,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
       {/* Bubble */}
       <div
         className={`rounded-2xl p-4 text-sm leading-relaxed max-w-full sm:max-w-[90%] border shadow-md ${
-          isModel
+          message.content?.startsWith('⚠️')
+            ? 'bg-rose-950/40 text-rose-200 border-rose-500/40 shadow-rose-950/50'
+            : isModel
             ? 'bg-slate-900 text-slate-100 border-slate-800'
             : 'bg-emerald-700 text-white border-emerald-600 rounded-tr-none'
         }`}
@@ -182,8 +184,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         )}
       </div>
 
-      {/* Action buttons for model messages: Real Gemini Audio & Copy */}
-      {isModel && !isStreaming && (
+      {/* Action buttons for model messages: Real Gemini Audio & Copy (hidden on errors) */}
+      {isModel && !isStreaming && !message.content.startsWith('⚠️') && !message.content.includes('تعذر استلام') && (
         <div className="mt-1.5 mr-1 flex items-center gap-2">
           {/* Read Aloud Button with guaranteed Gemini Voice */}
           <button

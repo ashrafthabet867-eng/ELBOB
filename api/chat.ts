@@ -112,22 +112,25 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    // Lightning-fast model with MINIMAL thinking for sub-second responses
-    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+    // High-performance models with minimal latency configuration
+    const modelsToTry = [
+      { name: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
+      { name: 'gemini-3.8-flash', thinkingLevel: ThinkingLevel.LOW },
+    ];
     let replyText = '';
     let lastError = '';
 
-    for (const modelName of modelsToTry) {
+    for (const item of modelsToTry) {
       try {
         const response = await ai.models.generateContent({
-          model: modelName,
+          model: item.name,
           contents,
           config: {
             systemInstruction: SYSTEM_INSTRUCTION,
             temperature: 0.2,
-            maxOutputTokens: 800,
+            maxOutputTokens: 2500,
             thinkingConfig: {
-              thinkingLevel: ThinkingLevel.MINIMAL,
+              thinkingLevel: item.thinkingLevel,
             },
           },
         });
@@ -138,7 +141,7 @@ export default async function handler(req: any, res: any) {
         }
       } catch (err: any) {
         lastError = err.message || String(err);
-        console.warn(`Model ${modelName} error on Vercel:`, lastError);
+        console.warn(`Model ${item.name} error:`, lastError);
       }
     }
 
