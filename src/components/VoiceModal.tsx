@@ -37,6 +37,8 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
   const silenceTimerRef = useRef<any>(null);
   const isClosingRef = useRef(false);
   const liveTranscriptRef = useRef('');
+  const hasSpokenRef = useRef(false);
+  const currentStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -66,6 +68,39 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     };
   }, [isOpen]);
 
+  const stopListeningStreams = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.abort();
+      } catch (e) {}
+      speechRecognitionRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
+    }
+    if (currentStreamRef.current) {
+      currentStreamRef.current.getTracks().forEach((track) => track.stop());
+      currentStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+    setVolumeLevel(0);
+  };
+
   const stopAll = () => {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
@@ -75,40 +110,17 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       window.speechSynthesis.cancel();
     }
     if (callTimerRef.current) clearInterval(callTimerRef.current);
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-
-    if (audioContextRef.current) {
-      try {
-        audioContextRef.current.close();
-      } catch (e) {}
-      audioContextRef.current = null;
-    }
-
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.abort();
-      } catch (e) {}
-      speechRecognitionRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {}
-      mediaRecorderRef.current = null;
-    }
-
+    stopListeningStreams();
     setVoiceState('idle');
-    setVolumeLevel(0);
   };
 
-  // Start listening with high stability
+  // Start listening with high stability and cross-browser fallbacks
   const startListening = async () => {
     if (isClosingRef.current) return;
     setErrorMessage('');
     setUserTranscript('');
     liveTranscriptRef.current = '';
+    hasSpokenRef.current = false;
 
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
@@ -133,7 +145,9 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         },
       });
 
-      // 1. Audio Analyser for live visualizer
+      currentStreamRef.current = stream;
+
+      // 1. Audio Analyser for live visualizer & silence trigger
       try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
@@ -157,13 +171,18 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             const currentVol = Math.min(100, Math.round((avg / 128) * 100));
             setVolumeLevel(currentVol);
 
-            // Silence Detection: 2.2s of silence after speaking auto-submits
-            if (liveTranscriptRef.current.trim().length > 3) {
-              if (currentVol < 10) {
+            // User began speaking
+            if (currentVol > 12) {
+              hasSpokenRef.current = true;
+            }
+
+            // Silence detection: 1.8s of silence after speaking auto-submits
+            if (hasSpokenRef.current || liveTranscriptRef.current.trim().length > 2) {
+              if (currentVol < 9) {
                 if (!silenceTimerRef.current) {
                   silenceTimerRef.current = setTimeout(() => {
                     stopListeningAndSubmit();
-                  }, 2200);
+                  }, 1800);
                 }
               } else {
                 if (silenceTimerRef.current) {
@@ -181,7 +200,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         console.warn('Audio analyser error:', e);
       }
 
-      // 2. SpeechRecognition in continuous mode
+      // 2. SpeechRecognition in continuous mode (if available in browser)
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -200,6 +219,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
             if (fullText) {
               liveTranscriptRef.current = fullText;
               setUserTranscript(fullText);
+              hasSpokenRef.current = true;
             }
           };
 
@@ -214,7 +234,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         }
       }
 
-      // 3. MediaRecorder capture
+      // 3. MediaRecorder capture with 100ms chunking
       audioChunksRef.current = [];
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -230,11 +250,14 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         : new MediaRecorder(stream);
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        if (event.data && event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
+        if (currentStreamRef.current) {
+          currentStreamRef.current.getTracks().forEach((track) => track.stop());
+          currentStreamRef.current = null;
+        }
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         setVolumeLevel(0);
@@ -251,7 +274,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
           type: mediaRecorder.mimeType || 'audio/webm',
         });
 
-        if (finalBlob.size > 0) {
+        if (finalBlob.size > 300) {
           const reader = new FileReader();
           reader.readAsDataURL(finalBlob);
           reader.onloadend = () => {
@@ -267,13 +290,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       };
 
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(250);
+      mediaRecorder.start(100);
       setVoiceState('listening');
     } catch (err: any) {
       console.error('Mic error:', err);
       setVoiceState('idle');
       setErrorMessage(
-        'يرجى السماح بالوصول للمايك في المتصفح لبدء المحادثة.'
+        'يرجى السماح بالوصول للمايك في المتصفح لبدء المحادثة المباشرة.'
       );
     }
   };
@@ -293,7 +316,13 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Execute Voice Turn with Real Audio Output (Single-step lightning speed)
+  const handleSelectQuickQuestion = (q: string) => {
+    stopListeningStreams();
+    setUserTranscript(q);
+    executeVoiceTurn({ text: q });
+  };
+
+  // Execute Voice Turn with Ultra-Fast sub-2s Response
   const executeVoiceTurn = async (payload: {
     text?: string;
     audioBase64?: string;
@@ -320,21 +349,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
       setModelResponse(modelText);
       onNewMessagePair(userText, modelText);
 
-      // Play audio directly if returned in the same call (lightning fast)
+      // Play audio directly if returned in the same call (instant sub-second playback)
       if (data.audioBase64) {
-        await playGeminiWavAudio(data.audioBase64, data.mimeType || 'audio/wav');
+        await playGeminiWavAudio(data.audioBase64, data.mimeType || 'audio/mpeg');
       } else {
         await playRealGeminiAudio(modelText);
       }
     } catch (err: any) {
       console.error('Voice turn error:', err);
       setVoiceState('idle');
-      setErrorMessage('حدث خطأ في الاتصال. اضغط للتحدث مرة أخرى.');
+      setErrorMessage('حدث خطأ في الاتصال. انقر للتحدث مرة أخرى.');
     }
   };
 
-  // Play decoded Gemini WAV/MP3 audio directly with waveform animation
-  const playGeminiWavAudio = async (base64Audio: string, mimeType: string = 'audio/wav') => {
+  // Play decoded Audio directly with waveform animation & auto-resume conversation
+  const playGeminiWavAudio = async (base64Audio: string, mimeType: string = 'audio/mpeg') => {
     setVoiceState('speaking');
 
     try {
@@ -359,22 +388,31 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
         setVolumeLevel(Math.round(25 + Math.random() * 55));
       }, 100);
 
-      audio.onended = () => {
+      const cleanupAudio = () => {
         clearInterval(volInterval);
         setVolumeLevel(0);
-        setVoiceState('idle');
         currentAudioRef.current = null;
         (window as any).__activeElbobAudio = null;
         URL.revokeObjectURL(audioUrl);
       };
 
+      audio.onended = () => {
+        cleanupAudio();
+        // Seamlessly return to listening state so user can continue conversation naturally!
+        if (!isClosingRef.current) {
+          setTimeout(() => {
+            if (!isClosingRef.current) {
+              startListening();
+            }
+          }, 500);
+        } else {
+          setVoiceState('idle');
+        }
+      };
+
       audio.onerror = () => {
-        clearInterval(volInterval);
-        setVolumeLevel(0);
+        cleanupAudio();
         setVoiceState('idle');
-        currentAudioRef.current = null;
-        (window as any).__activeElbobAudio = null;
-        URL.revokeObjectURL(audioUrl);
       };
 
       await audio.play();
@@ -384,7 +422,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
     }
   };
 
-  // Fallback if needed
+  // Fallback TTS
   const playRealGeminiAudio = async (text: string) => {
     try {
       const res = await fetch('/api/tts', {
@@ -397,20 +435,21 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
 
       const data = await res.json();
       if (data.audioBase64) {
-        await playGeminiWavAudio(data.audioBase64, data.mimeType || 'audio/wav');
+        await playGeminiWavAudio(data.audioBase64, data.mimeType || 'audio/mpeg');
         return;
       }
     } catch (err) {
-      console.warn('Real Gemini TTS fetch error, fallback to speech synthesis:', err);
+      console.warn('TTS fetch error, fallback to speech synthesis:', err);
     }
 
-    // Fallback to browser synthesis if network unavailable
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const clean = text.replace(/[#*`_~|]/g, '').slice(0, 300);
       const utterance = new SpeechSynthesisUtterance(clean);
       utterance.lang = 'ar-SA';
-      utterance.onend = () => setVoiceState('idle');
+      utterance.onend = () => {
+        if (!isClosingRef.current) startListening();
+      };
       utterance.onerror = () => setVoiceState('idle');
       window.speechSynthesis.speak(utterance);
     } else {
@@ -562,10 +601,7 @@ export const VoiceModal: React.FC<VoiceModalProps> = ({
                 {QUICK_VOICE_QUESTIONS.map((q, idx) => (
                   <button
                     key={idx}
-                    onClick={() => {
-                      setUserTranscript(q);
-                      executeVoiceTurn({ text: q });
-                    }}
+                    onClick={() => handleSelectQuickQuestion(q)}
                     className="text-right text-xs bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 text-slate-200 p-2 rounded-xl transition flex items-center justify-between group cursor-pointer"
                   >
                     <span className="truncate">{q}</span>

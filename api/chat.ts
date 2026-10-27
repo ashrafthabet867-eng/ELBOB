@@ -41,7 +41,7 @@ export default async function handler(req: any, res: any) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
-      error: 'مفتاح GEMINI_API_KEY غير موجود في إعدادات Vercel. يرجى إضافته في إعدادات المشروع على Vercel: Settings > Environment Variables ثم عمل Redeploy.',
+      error: 'مفتاح GEMINI_API_KEY غير متوفر في إعدادات الخادم.',
     });
   }
 
@@ -59,6 +59,7 @@ export default async function handler(req: any, res: any) {
         ((m.content && m.content.trim() !== '') || m.attachment?.data) &&
         !m.content?.startsWith('⚠️') &&
         !m.content?.includes('تعذر استلام') &&
+        !m.content?.includes('جاري فحص المسألة') &&
         !m.content?.includes('عذراً')
     );
 
@@ -103,6 +104,18 @@ export default async function handler(req: any, res: any) {
           contents.push({ role, parts });
         }
       }
+    }
+
+    // Ensure conversation starts and ends with user message for strict API compliance
+    while (contents.length > 0 && contents[0].role !== 'user') {
+      contents.shift();
+    }
+    while (contents.length > 0 && contents[contents.length - 1].role !== 'user') {
+      contents.pop();
+    }
+
+    if (contents.length === 0) {
+      return res.status(400).json({ error: 'يجب أن تبدأ المحادثة برسالة من المستخدم' });
     }
 
     const ai = new GoogleGenAI({
@@ -153,7 +166,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ text: replyText });
   } catch (error: any) {
-    console.error('Vercel chat error:', error);
+    console.error('Chat API error:', error);
     return res.status(500).json({ error: error.message || 'حدث خطأ في السيرفر' });
   }
 }

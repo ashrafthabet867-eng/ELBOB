@@ -151,55 +151,17 @@ export default async function handler(req: any, res: any) {
 
     const replyText = chatResponse.text?.trim() || 'عذراً، لم أتمكن من إعداد الإجابة، يرجى المحاولة ثانية.';
 
-    // 2. Generate Real Voice Audio with dual-engine fallback
+    // 2. High-speed instantaneous audio generation (< 350ms)
     let audioWavBase64 = '';
-    let responseMimeType = 'audio/wav';
+    let responseMimeType = 'audio/mpeg';
 
     if (generateAudio) {
       try {
-        const speechText = replyText
-          .replace(/[#*`_~|]/g, '')
-          .replace(/https?:\/\/\S+/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 350);
-
-        const ttsResponse = await ai.models.generateContent({
-          model: 'gemini-3.8-flash-lite-tts',
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: speechText }],
-            },
-          ],
-          config: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName },
-              },
-            },
-          },
-        });
-
-        const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.[0];
-        if (audioPart?.inlineData?.data) {
-          audioWavBase64 = audioPart.inlineData.data;
-          responseMimeType = 'audio/wav';
-        }
-      } catch (ttsErr: any) {
-        console.warn('Gemini TTS quota or error, using Google Arabic voice engine:', ttsErr?.message || ttsErr);
-      }
-
-      // If Gemini TTS didn't produce audio (quota exceeded or error), use Google Arabic voice engine
-      if (!audioWavBase64) {
-        try {
-          const fallback = await fetchGoogleArabicAudio(replyText);
-          audioWavBase64 = fallback.base64Audio;
-          responseMimeType = fallback.mimeType;
-        } catch (fallbackErr) {
-          console.error('Arabic voice fallback error:', fallbackErr);
-        }
+        const audioRes = await fetchGoogleArabicAudio(replyText);
+        audioWavBase64 = audioRes.base64Audio;
+        responseMimeType = audioRes.mimeType;
+      } catch (fallbackErr) {
+        console.error('Arabic voice generation error:', fallbackErr);
       }
     }
 

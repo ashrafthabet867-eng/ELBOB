@@ -16,7 +16,7 @@ export default async function handler(req: any, res: any) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
-      error: 'مفتاح GEMINI_API_KEY غير موجود في إعدادات Vercel. يرجى إضافته في إعدادات المشروع على Vercel: Settings > Environment Variables.',
+      error: 'مفتاح GEMINI_API_KEY غير متوفر في إعدادات الخادم.',
     });
   }
 
