@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { Copy, Check, FileText, Volume2, Square, Loader2 } from 'lucide-react';
+import { Copy, Check, FileText, Volume2, Square, Loader2, RefreshCw } from 'lucide-react';
 import { Message } from '../types';
 
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  onRetry?: () => void;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming, onRetry }) => {
   const isModel = message.role === 'model';
   const [copied, setCopied] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -136,50 +137,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     !message.content.includes('جاري فحص المسألة');
 
   return (
-    <div className={`flex flex-col my-3.5 ${isModel ? 'items-start' : 'items-end'}`}>
-      {/* Sender Header with Top Audio Button */}
-      <div className="flex items-center justify-between w-full max-w-full sm:max-w-[90%] mb-1 px-1 text-xs">
-        <div className="flex items-center gap-2">
-          {isModel ? (
-            <span className="font-extrabold text-emerald-400 text-sm">البوب</span>
-          ) : (
-            <span className="font-medium text-slate-400">أنت</span>
-          )}
-          <span className="text-[10px] text-slate-500">{message.timestamp}</span>
-        </div>
-
-        {/* Prominent Header Audio Button */}
-        {canPlayVoice && (
-          <button
-            onClick={handleToggleVoice}
-            disabled={isLoadingAudio}
-            className={`flex items-center gap-1.5 text-xs font-bold py-1 px-3 rounded-full border transition-all cursor-pointer shadow-sm ${
-              isPlayingAudio
-                ? 'bg-rose-500/25 text-rose-300 border-rose-500/60 animate-pulse ring-2 ring-rose-500/30'
-                : isLoadingAudio
-                ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
-                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30 hover:border-emerald-400 hover:scale-105'
-            }`}
-            title={isPlayingAudio ? 'إيقاف الشرح الصوتي' : 'استمع للشرح الصوتي للمسألة'}
-          >
-            {isLoadingAudio ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                <span>جارٍ التجهيز...</span>
-              </>
-            ) : isPlayingAudio ? (
-              <>
-                <Square className="w-3 h-3 fill-rose-400 text-rose-400" />
-                <span>إيقاف الصوت</span>
-              </>
-            ) : (
-              <>
-                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>استمع للشرح 🔊</span>
-              </>
-            )}
-          </button>
+    <div className={`flex flex-col my-3 ${isModel ? 'items-start' : 'items-end'}`}>
+      {/* Sender Header */}
+      <div className="flex items-center gap-2 mb-1 px-1 text-xs">
+        {isModel ? (
+          <span className="font-extrabold text-emerald-400 text-sm">البوب</span>
+        ) : (
+          <span className="font-medium text-slate-400">أنت</span>
         )}
+        <span className="text-[10px] text-slate-500">{message.timestamp}</span>
       </div>
 
       {/* Bubble */}
@@ -246,53 +212,66 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
             </button>
           </div>
         )}
+
+        {/* Action Toolbar INSIDE Model Bubble */}
+        {canPlayVoice && (
+          <div className="mt-3.5 pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+            {/* Audio Button */}
+            <button
+              onClick={handleToggleVoice}
+              disabled={isLoadingAudio}
+              className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-xl border transition-all cursor-pointer ${
+                isPlayingAudio
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
+                  : isLoadingAudio
+                  ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
+                  : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25 hover:border-emerald-500/60'
+              }`}
+              title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح الصوتي للمسألة'}
+            >
+              {isLoadingAudio ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                  <span>جارٍ تجهيز الصوت...</span>
+                </>
+              ) : isPlayingAudio ? (
+                <>
+                  <Square className="w-3.5 h-3.5 fill-rose-400 text-rose-400" />
+                  <span>إيقاف الصوت</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>استمع للشرح الصوتي 🔊</span>
+                </>
+              )}
+            </button>
+
+            {/* Copy Button */}
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white transition py-1.5 px-3 rounded-xl border border-slate-750 bg-slate-800/60 hover:bg-slate-800 cursor-pointer"
+              title="نسخ نص الإجابة"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'تم النسخ' : 'نسخ الإجابة'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Retry Button inside Error Card */}
+        {isErrorMessage && onRetry && (
+          <div className="mt-3 pt-2.5 border-t border-rose-500/30 flex items-center justify-end">
+            <button
+              onClick={onRetry}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-xs font-bold text-rose-200 rounded-xl transition cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>إعادة المحاولة الآن</span>
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Action buttons below model messages */}
-      {canPlayVoice && (
-        <div className="mt-2 mr-1 flex items-center gap-2">
-          {/* Read Aloud Button */}
-          <button
-            onClick={handleToggleVoice}
-            disabled={isLoadingAudio}
-            className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-xl border transition-all cursor-pointer ${
-              isPlayingAudio
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
-                : isLoadingAudio
-                ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
-                : 'bg-slate-800/90 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/60'
-            }`}
-            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح'}
-          >
-            {isLoadingAudio ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                <span>جارٍ تحضير الصوت...</span>
-              </>
-            ) : isPlayingAudio ? (
-              <>
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>إيقاف الصوت</span>
-              </>
-            ) : (
-              <>
-                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>استمع للشرح الصوتي</span>
-              </>
-            )}
-          </button>
-
-          {/* Copy Button */}
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition py-1.5 px-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/80 cursor-pointer"
-            title="نسخ النص"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'تم النسخ' : 'نسخ الإجابة'}</span>
-          </button>
-        </div>
-      )}
 
       {/* Lightbox Image Preview Modal */}
       {showImagePreview && message.attachment && (

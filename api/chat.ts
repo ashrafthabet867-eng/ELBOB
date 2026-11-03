@@ -22,8 +22,85 @@ const SYSTEM_INSTRUCTION = `أنت تطبيق «البوب» - معلم ومسا
 4. الرد المباشر السريع دون مقدمات إنشائية مكررة أو إعادة كتابة نص السؤال.
 
 قاعدة المعرفة الحصرية المعتمدة من كتاب الوزارة:
-${CURRICULUM_KNOWLEDGE_BASE}
-`;
+${CURRICULUM_KNOWLEDGE_BASE}`;
+
+// Fast in-memory responses for common greetings to prevent hitting Free-Tier API Rate Limits
+function matchImmediateResponse(text: string, hasAttachment: boolean): string | null {
+  if (hasAttachment) return null;
+  const clean = text
+    .trim()
+    .toLowerCase()
+    .replace(/[!?.،؟]/g, '')
+    .replace(/\s+/g, ' ');
+
+  if (
+    /^(السلام عليكم|سلام عليكم|وعليكم السلام|السلام عليكم ورحمة الله|السلام عليكم ورحمة الله وبركاته|سلام)$/i.test(
+      clean
+    )
+  ) {
+    return `وعليكم السلام ورحمة الله وبركاته يا بطل! 🎓✨
+أهلاً ومرحباً بك، معك «البوب» معلم ومساعد مادة المحاسبة المالية للصف الثاني الثانوي التجاري (المنهج المصري 2026).
+
+أنا جاهز ومتحمس تماماً لمساعدتك في:
+1. 📝 حل أي مسألة أو تمرين محاسبي بالتمهيد الحسابي وقيود اليومية والقوائم المالية.
+2. 📷 قراءة وفحص صور التمارين والمستندات وحلها خطوة بخطوة بالحل النموذجي.
+3. 💡 إجابة أسئلة التفسير بمنهجية الوزارة JRE [الحكم + التفسير + الدليل].
+4. 🔊 الاستماع للشرح الصوتي لكل مسألة بوضوح.
+
+تفضل بكتابة سؤالك أو إرفاق صورة المسألة فوراً لنبدأ الحل! ✍️`;
+  }
+
+  if (/^(مرحبا|مرحباً|أهلا|اهلا|أهلاً|أهلا وسهلا|اهلا وسهلا|هاي|هلو|hello|hi)$/i.test(clean)) {
+    return `أهلاً ومرحباً بك يا عبقري المحاسبة! 🌟
+معك «البوب» مدرس المحاسبة المالية للصف الثاني الثانوي (2026).
+أنا تحت أمرك في أي تمرين، قيد يومية، حسابات ختامية، أو سؤال في منهجك.
+اطرح سؤالك أو أرسل صورة التمرين من كتابك وسأجيبك فوراً بالخطوات والشرح الصوتي! 📚`;
+  }
+
+  if (/^(صباح الخير|صباح النور|مساء الخير|مساء النور)$/i.test(clean)) {
+    return `يسعد أوقاتك بكل خير وتوفيق يا صديقي! ☀️
+معك «البوب» أستاذ مادة المحاسبة المالية.
+جاهز لكل أسئلتك وتمارينك في منهج الصف الثاني الثانوي.
+اكتب مسألتك أو ارفع صورتها لنحلها بالخطوات الرياضية الدقيقة الآن! 💼`;
+  }
+
+  if (/^(ازيك|ازيك يا بوب|إزيك|إزيك يا بوب|ازيك يا مستر|عامل ايه|أخبارك|اخبارك|كيف حالك)$/i.test(clean)) {
+    return `الحمد لله بأفضل حال وفي قمة النشاط! تسلم على ذوقك يا غالي. 🌟
+أنا في كامل الجاهزية لنحل معاً أي مسألة في مادة المحاسبة المالية للصف الثاني الثانوي.
+ما هو التمرين أو النقطة التي تريد أن نبدأ بها الآن؟ 📊`;
+  }
+
+  if (
+    /^(من أنت|مين انت|عرف نفسك|مين البوب|من انت يا بوب|أنت مين|انت مين|تعريف)$/i.test(
+      clean
+    )
+  ) {
+    return `أنا «البوب» - معلم ومساعد المحاسبة المالية الذكي الحصري لطلاب الصف الثاني الثانوي التجاري (البكالوريا المصرية 2026). 📘
+
+أعتمد بنسبة 100% وبشكل حصري على:
+• كتاب الوزارة الرسمي (الجزء الأول + الجزء الثاني).
+• نماذج الإجابات الرسمية والتدريبات بنظام JRE [الحكم + التفسير + الدليل].
+
+أقدم لك:
+1. حل المسائل الرياضية بالتمهيد الحسابي وقيود اليومية ودفاتر الأستاذ والحسابات الختامية.
+2. فحص صور الكتب والمذكرات والمستندات وحلها فورياً.
+3. شرح صوتي مسموع بالضغط على زر «استمع للشرح».
+
+تفضل بإرسال أي مسألة أو سؤال وسأبدأ الحل معك فوراً! 🚀`;
+  }
+
+  if (
+    /^(شكرا|شكراً|تسلم|تسلم يا بوب|شكرا يا بوب|الله ينور|جزاك الله خير|جزاك الله خيرا|الف شكر)$/i.test(
+      clean
+    )
+  ) {
+    return `العفو يا غالي، ده واجبي ويسعدني دائماً تفوقك ونجاحك! 👏❤️
+هدفي أن تكون الأول في المحاسبة المالية وتحصل على الدرجة النهائية بإذن الله.
+إذا كان لديك أي تمرين أو استفسار إضافي، أنا في خدمتك دائماً! ✨`;
+  }
+
+  return null;
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,7 +124,6 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { messages } = req.body || {};
-
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'قائمة الرسائل مطلوبة' });
     }
@@ -70,12 +146,24 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'يجب أن تبدأ المحادثة برسالة من المستخدم' });
     }
 
+    // Check last user message for fast greetings / pleasantries to preserve API quotas
+    const lastUserMessage = [...userStartedMessages].reverse().find((m) => m.role === 'user');
+    if (lastUserMessage) {
+      const immediate = matchImmediateResponse(
+        lastUserMessage.content || '',
+        Boolean(lastUserMessage.attachment)
+      );
+      if (immediate) {
+        return res.status(200).json({ text: immediate });
+      }
+    }
+
     // Convert messages to Gemini contents supporting multimodality
     const contents: Array<{ role: 'user' | 'model'; parts: Array<any> }> = [];
+
     for (const msg of userStartedMessages) {
       const role: 'user' | 'model' =
         msg.role === 'model' || msg.role === 'assistant' ? 'model' : 'user';
-
       const parts: any[] = [];
 
       if (role === 'user' && msg.attachment?.data) {
@@ -130,22 +218,25 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    // High-performance models with proven active capacity & fallback
+    // High-performance models with active capacity & fallback
     const modelsToTry: Array<{ name: string; thinkingLevel?: ThinkingLevel }> = [
       { name: 'gemini-3.6-flash' },
       { name: 'gemini-3.5-flash' },
       { name: 'gemini-flash-lite-latest' },
       { name: 'gemini-3.5-flash-lite' },
-      { name: 'gemini-3.8-flash' },
     ];
+
     let replyText = '';
     const modelErrors: string[] = [];
+    let hadRateLimit = false;
 
-    for (const item of modelsToTry) {
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const item = modelsToTry[i];
       try {
         const config: any = {
           systemInstruction: SYSTEM_INSTRUCTION,
         };
+
         if (item.thinkingLevel) {
           config.thinkingConfig = {
             thinkingLevel: item.thinkingLevel,
@@ -166,10 +257,28 @@ export default async function handler(req: any, res: any) {
         const msg = err.message || String(err);
         modelErrors.push(`${item.name}: ${msg}`);
         console.warn(`Model ${item.name} error:`, msg);
+
+        if (
+          msg.includes('429') ||
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('quota') ||
+          msg.includes('Rate limit')
+        ) {
+          hadRateLimit = true;
+          // Apply exponential backoff before trying next fallback model
+          if (i < modelsToTry.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        }
       }
     }
 
     if (!replyText) {
+      if (hadRateLimit) {
+        return res.status(429).json({
+          error: 'تم بلوغ الحد المؤقت لطلبات الدقيقة (429). يُرجى الانتظار بضع ثوانٍ فقط ثم الضغط على زر إعادة المحاولة.',
+        });
+      }
       return res.status(503).json({
         error: `تعذر الاتصال بالذكاء الاصطناعي: ${modelErrors.join(' || ')}`,
       });

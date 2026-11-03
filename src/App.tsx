@@ -127,7 +127,7 @@ export default function App() {
         });
 
         if (!response.ok && (response.status === 500 || response.status === 503)) {
-          await new Promise((r) => setTimeout(r, 600));
+          await new Promise((r) => setTimeout(r, 1200));
           response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -137,7 +137,7 @@ export default function App() {
         }
       } catch (networkErr: any) {
         if (networkErr.name === 'AbortError') throw networkErr;
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 1200));
         response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -148,6 +148,9 @@ export default function App() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        if (response.status === 429) {
+          throw new Error('ضغط مؤقت على الخادم (429) - تم بلوغ الحد المؤقت للطلبات في الدقيقة');
+        }
         throw new Error(errorData.error || `خطأ في الخادم (${response.status})`);
       }
 
@@ -167,7 +170,7 @@ export default function App() {
             m.id === modelMsgId
               ? {
                   ...m,
-                  content: `⚠️ تعذر استلام الإجابة: ${error.message || 'خطأ في الاتصال'}\n\nيمكنك النقر على زر إعادة المحاولة أدناه.`,
+                  content: `⚠️ تعذر استلام الإجابة: ${error.message || 'خطأ في الاتصال'}\n\nيرجى الانتظار بضع ثوانٍ ثم النقر على زر إعادة المحاولة أدناه لمتابعة الشرح والحل.`,
                 }
               : m
           )
@@ -244,6 +247,7 @@ export default function App() {
               key={message.id}
               message={message}
               isStreaming={isLast && isLoading && message.role === 'model'}
+              onRetry={isLast ? handleRetryLast : undefined}
             />
           );
         })}
