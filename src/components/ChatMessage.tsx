@@ -122,22 +122,70 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
     }
   };
 
+  const isErrorMessage =
+    message.content.includes('⚠️') ||
+    message.content.includes('تعذر استلام') ||
+    message.content.includes('خطأ في الخادم') ||
+    message.content.includes('حدث خطأ');
+
+  const canPlayVoice =
+    isModel &&
+    !isStreaming &&
+    !isErrorMessage &&
+    message.content.trim().length > 0 &&
+    !message.content.includes('جاري فحص المسألة');
+
   return (
     <div className={`flex flex-col my-3.5 ${isModel ? 'items-start' : 'items-end'}`}>
-      {/* Sender Header */}
-      <div className="flex items-center gap-2 mb-1 px-1 text-xs">
-        {isModel ? (
-          <span className="font-extrabold text-emerald-400">البوب</span>
-        ) : (
-          <span className="font-medium text-slate-400">أنت</span>
+      {/* Sender Header with Top Audio Button */}
+      <div className="flex items-center justify-between w-full max-w-full sm:max-w-[90%] mb-1 px-1 text-xs">
+        <div className="flex items-center gap-2">
+          {isModel ? (
+            <span className="font-extrabold text-emerald-400 text-sm">البوب</span>
+          ) : (
+            <span className="font-medium text-slate-400">أنت</span>
+          )}
+          <span className="text-[10px] text-slate-500">{message.timestamp}</span>
+        </div>
+
+        {/* Prominent Header Audio Button */}
+        {canPlayVoice && (
+          <button
+            onClick={handleToggleVoice}
+            disabled={isLoadingAudio}
+            className={`flex items-center gap-1.5 text-xs font-bold py-1 px-3 rounded-full border transition-all cursor-pointer shadow-sm ${
+              isPlayingAudio
+                ? 'bg-rose-500/25 text-rose-300 border-rose-500/60 animate-pulse ring-2 ring-rose-500/30'
+                : isLoadingAudio
+                ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
+                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30 hover:border-emerald-400 hover:scale-105'
+            }`}
+            title={isPlayingAudio ? 'إيقاف الشرح الصوتي' : 'استمع للشرح الصوتي للمسألة'}
+          >
+            {isLoadingAudio ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                <span>جارٍ التجهيز...</span>
+              </>
+            ) : isPlayingAudio ? (
+              <>
+                <Square className="w-3 h-3 fill-rose-400 text-rose-400" />
+                <span>إيقاف الصوت</span>
+              </>
+            ) : (
+              <>
+                <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>استمع للشرح 🔊</span>
+              </>
+            )}
+          </button>
         )}
-        <span className="text-[10px] text-slate-500">{message.timestamp}</span>
       </div>
 
       {/* Bubble */}
       <div
         className={`rounded-2xl p-4 text-sm leading-relaxed max-w-full sm:max-w-[90%] border shadow-md ${
-          message.content?.startsWith('⚠️')
+          isErrorMessage
             ? 'bg-rose-950/40 text-rose-200 border-rose-500/40 shadow-rose-950/50'
             : isModel
             ? 'bg-slate-900 text-slate-100 border-slate-800'
@@ -182,23 +230,39 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
         ) : (
           message.content && <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
         )}
+
+        {/* Playing audio status bar */}
+        {isPlayingAudio && (
+          <div className="mt-3 pt-2.5 border-t border-emerald-500/20 flex items-center justify-between text-xs text-emerald-300 bg-emerald-950/30 px-3 py-1.5 rounded-xl">
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              جارٍ تشغيل الشرح الصوتي بصوت المعلم «البوب»...
+            </span>
+            <button
+              onClick={handleToggleVoice}
+              className="text-rose-400 hover:text-rose-300 font-bold underline cursor-pointer text-xs"
+            >
+              إيقاف
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Action buttons for model messages: Real Gemini Audio & Copy (hidden on errors) */}
-      {isModel && !isStreaming && !message.content.startsWith('⚠️') && !message.content.includes('تعذر استلام') && (
-        <div className="mt-1.5 mr-1 flex items-center gap-2">
-          {/* Read Aloud Button with guaranteed Gemini Voice */}
+      {/* Action buttons below model messages */}
+      {canPlayVoice && (
+        <div className="mt-2 mr-1 flex items-center gap-2">
+          {/* Read Aloud Button */}
           <button
             onClick={handleToggleVoice}
             disabled={isLoadingAudio}
-            className={`flex items-center gap-1.5 text-xs font-semibold py-1 px-2.5 rounded-lg border transition cursor-pointer ${
+            className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-xl border transition-all cursor-pointer ${
               isPlayingAudio
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
                 : isLoadingAudio
                 ? 'bg-slate-800 text-slate-400 border-slate-700 cursor-wait'
-                : 'bg-slate-800/90 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-500/60'
+                : 'bg-slate-800/90 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/60'
             }`}
-            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح بصوت جيميني'}
+            title={isPlayingAudio ? 'إيقاف الصوت' : 'استمع للشرح'}
           >
             {isLoadingAudio ? (
               <>
@@ -213,7 +277,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
             ) : (
               <>
                 <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>استمع للشرح</span>
+                <span>استمع للشرح الصوتي</span>
               </>
             )}
           </button>
@@ -221,11 +285,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming }
           {/* Copy Button */}
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition py-1 px-2 rounded-lg hover:bg-slate-800/80 cursor-pointer"
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition py-1.5 px-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/80 cursor-pointer"
             title="نسخ النص"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'تم النسخ' : 'نسخ'}</span>
+            <span>{copied ? 'تم النسخ' : 'نسخ الإجابة'}</span>
           </button>
         </div>
       )}

@@ -24,6 +24,8 @@ app.all('/api/transcribe', (req: Request, res: Response) => transcribeHandler(re
 app.all('/api/voice', (req: Request, res: Response) => voiceHandler(req, res));
 app.all('/api/tts', (req: Request, res: Response) => ttsHandler(req, res));
 
+
+
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 

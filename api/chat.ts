@@ -79,19 +79,24 @@ export default async function handler(req: any, res: any) {
       const parts: any[] = [];
 
       if (role === 'user' && msg.attachment?.data) {
+        let cleanData = msg.attachment.data;
+        if (typeof cleanData === 'string' && cleanData.includes(',')) {
+          cleanData = cleanData.split(',')[1];
+        }
         parts.push({
           inlineData: {
             mimeType: msg.attachment.mimeType || 'image/jpeg',
-            data: msg.attachment.data,
+            data: cleanData,
           },
         });
       }
 
-      const textContent =
-        msg.content ||
-        (msg.attachment
-          ? 'يرجى حل وشرح المسألة المحاسبية من المرفق حلاً نموذجياً دقيقاً.'
-          : '');
+      let textContent = msg.content || '';
+      if (!textContent && msg.attachment) {
+        textContent = 'يرجى حل وشرح المسألة المحاسبية المرفقة خطوة بخطوة بالتمهيد الحسابي وقيود اليومية والقوائم المالية حلاً نموذجياً دقيقاً.';
+      } else if (textContent && msg.attachment) {
+        textContent = `${textContent}\n(توجيه للمساعد: حلل بيانات الصورة أو المستند المحاسبي بدقة تامة واذكر التمهيد الحسابي والقيود والحسابات وفق منهج الصف الثاني الثانوي التجاري 2026).`;
+      }
 
       if (textContent) {
         parts.push({ text: textContent });
@@ -125,27 +130,32 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    // High-performance models with minimal latency configuration
-    const modelsToTry = [
-      { name: 'gemini-3.1-flash-lite', thinkingLevel: ThinkingLevel.MINIMAL },
-      { name: 'gemini-3.8-flash', thinkingLevel: ThinkingLevel.LOW },
+    // High-performance models with proven active capacity & fallback
+    const modelsToTry: Array<{ name: string; thinkingLevel?: ThinkingLevel }> = [
+      { name: 'gemini-3.6-flash' },
+      { name: 'gemini-3.5-flash' },
+      { name: 'gemini-flash-lite-latest' },
+      { name: 'gemini-3.5-flash-lite' },
+      { name: 'gemini-3.8-flash' },
     ];
     let replyText = '';
-    let lastError = '';
+    const modelErrors: string[] = [];
 
     for (const item of modelsToTry) {
       try {
+        const config: any = {
+          systemInstruction: SYSTEM_INSTRUCTION,
+        };
+        if (item.thinkingLevel) {
+          config.thinkingConfig = {
+            thinkingLevel: item.thinkingLevel,
+          };
+        }
+
         const response = await ai.models.generateContent({
           model: item.name,
           contents,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-            temperature: 0.2,
-            maxOutputTokens: 2500,
-            thinkingConfig: {
-              thinkingLevel: item.thinkingLevel,
-            },
-          },
+          config,
         });
 
         if (response.text) {
@@ -153,14 +163,15 @@ export default async function handler(req: any, res: any) {
           break;
         }
       } catch (err: any) {
-        lastError = err.message || String(err);
-        console.warn(`Model ${item.name} error:`, lastError);
+        const msg = err.message || String(err);
+        modelErrors.push(`${item.name}: ${msg}`);
+        console.warn(`Model ${item.name} error:`, msg);
       }
     }
 
     if (!replyText) {
       return res.status(503).json({
-        error: `تعذر الاتصال بالذكاء الاصطناعي: ${lastError}`,
+        error: `تعذر الاتصال بالذكاء الاصطناعي: ${modelErrors.join(' || ')}`,
       });
     }
 
