@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Square, Loader2, Paperclip, X, FileText } from 'lucide-react';
+import { Send, Square, Paperclip, X, FileText } from 'lucide-react';
 import { Attachment } from '../types';
 
 interface ChatInputProps {
@@ -15,17 +15,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const speechRecognitionRef = useRef<any>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<any>(null);
-  const liveTranscriptRef = useRef('');
 
   // Auto-resize textarea
   useEffect(() => {
@@ -80,283 +72,95 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     e.target.value = '';
   };
 
-  // Start recording with auto-send on completion
-  const startRecording = async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('متصفحك لا يدعم تسجيل الصوت.');
-        return;
-      }
-
-      liveTranscriptRef.current = '';
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      // 1. Try real-time browser speech recognition
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-      if (SpeechRecognition) {
-        try {
-          const rec = new SpeechRecognition();
-          rec.lang = 'ar-EG';
-          rec.continuous = false;
-          rec.interimResults = true;
-
-          rec.onresult = (ev: any) => {
-            let res = '';
-            for (let i = ev.resultIndex; i < ev.results.length; ++i) {
-              res += ev.results[i][0].transcript;
-            }
-            if (res) {
-              liveTranscriptRef.current = res;
-              setInput(res);
-            }
-          };
-
-          rec.onspeechend = () => {
-            stopRecordingAndSend();
-          };
-
-          rec.start();
-          speechRecognitionRef.current = rec;
-        } catch (e) {
-          console.warn('SpeechRecognition not available:', e);
-        }
-      }
-
-      // 2. MediaRecorder as parallel audio stream
-      audioChunksRef.current = [];
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
-      }
-
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecording(false);
-
-        const recognized = liveTranscriptRef.current.trim();
-        if (recognized.length > 1) {
-          // AUTO-SEND THE MESSAGE DIRECTLY!
-          onSendMessage(recognized, attachment || undefined);
-          setInput('');
-          setAttachment(null);
-          return;
-        }
-
-        const finalBlob = new Blob(audioChunksRef.current, {
-          type: mediaRecorder.mimeType || 'audio/webm',
-        });
-
-        if (finalBlob.size > 0) {
-          setIsTranscribing(true);
-          try {
-            const reader = new FileReader();
-            reader.readAsDataURL(finalBlob);
-            reader.onloadend = async () => {
-              const base64Data = (reader.result as string).split(',')[1];
-              const res = await fetch('/api/transcribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  audioBase64: base64Data,
-                  mimeType: finalBlob.type || 'audio/webm',
-                }),
-              });
-
-              const data = await res.json();
-              if (data.text && data.text.trim()) {
-                // AUTO-SEND THE TRANSCRIBED MESSAGE DIRECTLY!
-                onSendMessage(data.text.trim(), attachment || undefined);
-                setInput('');
-                setAttachment(null);
-              }
-              setIsTranscribing(false);
-            };
-          } catch (err) {
-            console.error('Transcription error:', err);
-            setIsTranscribing(false);
-          }
-        }
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(250);
-      setIsRecording(true);
-      setRecordingSeconds(0);
-
-      timerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch (err: any) {
-      console.error('Mic access error:', err);
-      setIsRecording(false);
-    }
-  };
-
-  const stopRecordingAndSend = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch (e) {}
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {}
-    }
-  };
-
   return (
-    <div className="border-t border-slate-800/80 bg-slate-900/95 p-3 sm:p-4 backdrop-blur-md">
-      <div className="max-w-3xl mx-auto space-y-2">
-        {/* Attachment preview if selected */}
+    <div className="border-t border-slate-800 bg-slate-900/90 backdrop-blur p-3 sm:p-4 sticky bottom-0 z-20">
+      <div className="max-w-3xl mx-auto flex flex-col gap-2">
+        {/* Attachment preview banner */}
         {attachment && (
-          <div className="flex items-center justify-between bg-slate-800/90 border border-slate-700 rounded-xl p-2 px-3 text-xs text-slate-200">
-            <div className="flex items-center gap-2 truncate">
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200">
+            <div className="flex items-center gap-2 overflow-hidden">
               {attachment.type === 'image' ? (
-                <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-600 shrink-0">
-                  <img
-                    src={`data:${attachment.mimeType};base64,${attachment.data}`}
-                    alt="مرفق"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+                <img
+                  src={`data:${attachment.mimeType};base64,${attachment.data}`}
+                  alt="مرفق"
+                  className="w-10 h-10 object-cover rounded-lg border border-slate-600"
+                />
               ) : (
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                  <FileText className="w-5 h-5" />
-                </div>
+                <FileText className="w-5 h-5 text-emerald-400 shrink-0" />
               )}
               <div className="truncate">
                 <span className="font-semibold block truncate">{attachment.name}</span>
                 <span className="text-[10px] text-slate-400">
-                  {attachment.type === 'image' ? 'صورة مرفقة' : 'ملف / مستند'}
+                  {attachment.size ? `${Math.round(attachment.size / 1024)} ك.ب` : 'مرفق جاهز للحل'}
                 </span>
               </div>
             </div>
-
             <button
               onClick={() => setAttachment(null)}
-              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700/60 rounded-lg transition cursor-pointer"
-              title="إزالة المرفق"
+              className="p-1 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition"
+              title="إلغاء المرفق"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* Active Recording or Transcribing Status */}
-        {isRecording && (
-          <div className="flex items-center justify-between bg-rose-950/60 border border-rose-500/40 rounded-xl px-3.5 py-1.5 text-xs text-rose-300 animate-pulse">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <span>المايك يستمع... ({recordingSeconds} ث) - انقر لطلب الإجابة فوراً</span>
-            </div>
-            <button
-              onClick={stopRecordingAndSend}
-              className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg transition cursor-pointer"
-            >
-              أرسل السؤال الآن
-            </button>
-          </div>
-        )}
-
-        {isTranscribing && (
-          <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl px-3 py-1.5 text-xs text-emerald-300">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-            <span>جارٍ إرسال السؤال والإجابة فوراً...</span>
-          </div>
-        )}
-
         {/* Input Bar */}
-        <div className="flex items-end gap-1.5 sm:gap-2 bg-slate-800/80 border border-slate-700/80 rounded-2xl p-2 focus-within:border-emerald-500 transition shadow-inner">
+        <div className="flex items-end gap-2 bg-slate-950 border border-slate-800 focus-within:border-emerald-500/60 rounded-2xl p-1.5 transition-all shadow-inner">
           {/* File attachment button */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            accept="image/*,.pdf,application/pdf"
-            className="hidden"
-          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-700/60 transition shrink-0 cursor-pointer"
+            disabled={isLoading}
+            className="p-2.5 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded-xl transition cursor-pointer shrink-0"
             title="إرفاق صورة مسألة أو ملف PDF"
           >
             <Paperclip className="w-5 h-5" />
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={handleFileChange}
+            className="hidden"
+          />
 
-          {/* Microphone Button */}
-          <button
-            type="button"
-            onClick={isRecording ? stopRecordingAndSend : startRecording}
-            disabled={isTranscribing}
-            className={`p-2.5 rounded-xl transition shrink-0 cursor-pointer ${
-              isRecording
-                ? 'bg-rose-600 text-white animate-pulse'
-                : 'text-slate-400 hover:text-slate-100 hover:bg-slate-700/60'
-            }`}
-            title={isRecording ? 'إنهاء وإرسال السؤال' : 'تحدث بالمايك للإرسال التلقائي'}
-          >
-            <Mic className="w-5 h-5" />
-          </button>
-
-          {/* Textarea */}
+          {/* Text Area */}
           <textarea
             ref={textareaRef}
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={
-              attachment
-                ? 'أضف استفساراً مع المرفق (اختياري)...'
-                : 'اكتب سؤالك أو تحدث بالمايك وسيجيبك البوب فوراً...'
-            }
-            className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm resize-none focus:outline-none p-1.5 leading-relaxed"
+            placeholder="اكتب مسألتك أو سؤالك في المحاسبة المالية وسيجيبك البوب فوراً..."
+            disabled={isLoading}
+            className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-sm focus:outline-none resize-none py-2 px-1 max-h-36 min-h-[40px] leading-relaxed"
+            dir="rtl"
           />
 
-          {/* Action Button: Send or Stop */}
+          {/* Send or Stop Button */}
           {isLoading ? (
             <button
               type="button"
               onClick={onStopGeneration}
-              className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shrink-0 transition cursor-pointer"
-              title="إيقاف"
+              className="p-2.5 bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 border border-rose-500/40 rounded-xl transition shrink-0 cursor-pointer"
+              title="إيقاف التوليد"
             >
-              <Square className="w-4 h-4 fill-current" />
+              <Square className="w-5 h-5 fill-current" />
             </button>
           ) : (
             <button
               type="button"
               onClick={handleSend}
               disabled={!input.trim() && !attachment}
-              className={`p-2.5 rounded-xl shrink-0 transition flex items-center justify-center ${
+              className={`p-2.5 rounded-xl transition shrink-0 cursor-pointer ${
                 input.trim() || attachment
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer active:scale-95'
-                  : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/50'
+                  : 'bg-slate-900 text-slate-600 cursor-not-allowed'
               }`}
-              title="إرسال"
+              title="إرسال المسألة"
             >
-              <Send className="w-4 h-4 rotate-180" />
+              <Send className="w-5 h-5 rotate-180" />
             </button>
           )}
         </div>
