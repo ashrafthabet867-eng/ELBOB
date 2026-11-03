@@ -59,6 +59,15 @@ function matchLocalGreeting(text: string): string | null {
 تفضل بكتابة سؤالك أو إرفاق صورة المسألة فوراً لنبدأ الحل! ✍️`;
   }
 
+  // Egyptian dialect curriculum questions
+  if (
+    /^(ده اي منهج|ده أي منهج|ده منهج ايه|هو ده منهج ايه|منهج ايه ده|بتاع ايه ده|ده بتاع ايه|هو المنهج ده بتاع ايه|انت بتشرح منهج ايه|بتشرح ايه يا بوب|ده منهج تانية ثانوي|منهج ايه|هو ده ايه|ده ايه)$/i.test(
+      clean
+    )
+  ) {
+    return CURRICULUM_COMPONENTS_TEXT;
+  }
+
   if (
     /^(ما هي مكونات المنهج|مكونات المنهج|ما هو المنهج|فهرس المنهج|محتويات المنهج|الوحدات المقررة|كم وحدة في المنهج|ما هو منهج المحاسبة|فهرس الوحدات|الوحدات العشر)$/i.test(
       clean
@@ -235,6 +244,7 @@ export default function App() {
           response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ messages: chatPayload }),
             signal: abortController.signal,
           });
@@ -251,14 +261,14 @@ export default function App() {
             }
           } else if (response.status === 500 || response.status === 503) {
             const errData = await response.json().catch(() => ({}));
-            lastErrorMessage = errData.error || `خطأ في الخادم (${response.status})`;
+            lastErrorMessage = errData.error || 'ضغط مؤقت على الخادم، يرجى الانتظار ثوانٍ والنقر على إعادة المحاولة';
             if (attempt < maxRetries) {
               await new Promise((r) => setTimeout(r, 1500 * attempt));
               continue;
             }
           } else {
             const errData = await response.json().catch(() => ({}));
-            lastErrorMessage = errData.error || `خطأ (${response.status})`;
+            lastErrorMessage = errData.error || 'انقطاع مؤقت في الاتصال، اضغط إعادة المحاولة';
             break;
           }
         } catch (fetchErr: any) {
