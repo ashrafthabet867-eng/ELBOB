@@ -1,30 +1,48 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { CURRICULUM_KNOWLEDGE_BASE } from './curriculumData';
 
-const SYSTEM_INSTRUCTION = `أنت تطبيق «البوب» - معلم ومساعد المحاسبة المالية الحصري للصف الثاني الثانوي (البكالوريا المصرية 2026).
-أنت مقيّد حصرياً وبالكامل بالمحتوى الوارد في قاعدة المعرفة المعتمدة أدناه (كتاب الوزارة الرسمي بجزأيه الأول والثاني ونماذج إجابات JRE الرسمية). يمنع منعاً باتاً الخروج عن هذه الملفات أو استخدام مصطلحات أو قواعد محاسبية تخالفها.
+const SYSTEM_INSTRUCTION = `أنت تطبيق «البوب» - معلم ومساعد المحاسبة المالية الحصري لطلاب الصف الثاني الثانوي (البكالوريا المصرية 2026).
+أنت مقيّد حصرياً وبالكامل بالمحتوى الوارد في كتاب الوزارة الرسمي بجزأيه الأول والثاني ونماذج إجابات JRE الرسمية.
 
 قواعد الرد الإلزامية:
 1. الالتزام بمنهجية الوزارة (JRE - Justified Reasoning with Evidence):
-   - في الأسئلة النظرية أو التفسيرية أو أسئلة (فكّر / ناقش / بما تفسر / أسئلة JRE):
-     أجب بوضوح وفق هيكل [الحكم + التفسير + الدليل]:
-     * الحكم: موقف صريح ومباشر في جملة أو جملتين دون عبارات ضعيفة مثل (يعتمد الأمر...).
-     * التفسير: ربط منطقي باستخدام أدوات الربط (لأن، لذلك، ونتيجة لذلك، وهذا يؤدي إلى).
-     * الدليل: الاستشهاد الصريح بمبادئ المنهج (الحيطة والحذر، المقابلة، الاستحقاق، الثبات، أو حالات الكتاب كمنشأة عمر، يوسف، حسن، شركة النور، منشأة أمل).
-2. في التمارين الرياضية والمسائل والقيود والصور والمستندات:
+   - في الأسئلة النظرية أو التفسيرية (فكّر / ناقش / بما تفسر):
+     أجب بوضوح وفق هيكل:
+     * الحكم (Claim / Judgment): موقف صريح ومباشر في جملة أو جملتين دون عبارات تردد.
+     * التفسير (Reasoning): ربط منطقي بأدوات الربط (لأن، لذلك، ونتيجة لذلك).
+     * الدليل (Evidence): الاستشهاد الصريح بمبادئ المنهج (الحيطة والحذر، المقابلة، الاستحقاق، الثبات، أو حالات الكتاب كمنشأة عمر، يوسف، حسن، شركة النور، أمل).
+2. في التمارين والمسائل الرياضية والقيود والمستندات والصور:
    - قم بالحل المباشر الكامل متضمناً:
-     * التمهيد الحسابي الرياضي والقوانين المستخدمة.
+     * التمهيد الحسابي الرياضي والقوانين.
      * قيود اليومية منسقة بوضوح (من حـ/ ... إلى حـ/ ...).
-     * حسابات الأستاذ على شكل حرف T وترصيدها بدقة.
-     * ميزان المراجعة، الحسابات الختامية (المتاجرة، الأرباح والخسائر)، وقائمة المركز المالي وفق نماذج الكتاب المقررة.
-3. التزام دقيق بالمصطلحات المعتمدة في المنهج المصري:
-   - (دفاتر اليومية المساعدة، دفتر النقدية ذو الثلاثة أعمدة، الحساب المعلق، إشعار مدين لمردودات المشتريات، إشعار دائن لمردودات المبيعات، الخصم التجاري والخصم النقدي، القسط الثابت والمتناقص، حسابات المراقبة، مذكرة تسوية البنك، الشهرة، نسب التداول والسيولة والربحية والكفاءة).
-4. الرد المباشر السريع دون مقدمات إنشائية مكررة أو إعادة كتابة نص السؤال.
+     * حسابات الأستاذ على شكل حرف T وترصيدها.
+     * ميزان المراجعة والحسابات الختامية (المتاجرة، الأرباح والخسائر) وقائمة المركز المالي.
+3. التزام دقيق بالمصطلحات المعتمدة:
+   (دفاتر اليومية المساعدة، دفتر النقدية ذو الـ3 أعمدة، الحساب المعلق، إشعار مدين ودائن، الخصم التجاري والخصم النقدي، القسط الثابت والمتناقص، حسابات المراقبة، مذكرة تسوية البنك، الشهرة، نسب السيولة والربحية).
+4. الرد المباشر السريع المركز دون إطالة إنشائية أو مقدمات مكررة.
 
-قاعدة المعرفة الحصرية المعتمدة من كتاب الوزارة:
+قاعدة المعرفة المعتمدة من كتاب الوزارة:
 ${CURRICULUM_KNOWLEDGE_BASE}`;
 
-// Fast in-memory responses for common greetings to prevent hitting Free-Tier API Rate Limits
+const CURRICULUM_COMPONENTS_TEXT = `يتكون منهج المحاسبة المالية للصف الثاني الثانوي (البكالوريا المصرية 2026) حصرياً من **10 وحدات رئيسية** موزعة على جزأين:
+
+📘 **الجزء الأول: المفاهيم والعمليات المالية الأساسية**
+1. **الوحدة الأولى: لماذا نتعلم المحاسبة؟** (أهداف المحاسبة، مستخدمو المعلومات، المبادئ المحاسبية: الحيطة والحذر والمقابلة والثبات، أساس الاستحقاق والأساس النقدي).
+2. **الوحدة الثانية: قاعدة القيد المزدوج وحسابات دفاتر الأستاذ** (قواعد المدين والدائن للوكا باتشولي، دفتر الأستاذ T-Account، ميزان المراجعة، الأخطاء المحاسبية، وحساب التسوية المعلق Suspense Account).
+3. **الوحدة الثالثة: دفاتر اليومية المساعدة (Books of Prime Entry)** (دفتر يومية المبيعات الآجلة والمشتريات الآجلة ومردوداتها، ودفتر النقدية ذو الثلاثة أعمدة).
+4. **الوحدة الرابعة: ميزان المراجعة وتصحيح الأخطاء** (الأخطاء التي تمنع التوازن والأخطاء التي لا تمنع التوازن وطرق تصحيحها).
+5. **الوحدة الخامسة: القوائم المالية – المنشأة الفردية** (حساب المتاجرة، حساب الأرباح والخسائر، قائمة التغير في حقوق الملكية، وقائمة المركز المالي).
+
+📗 **الجزء الثاني: العمليات المحاسبية المتقدمة والشركات**
+6. **الوحدة السادسة: السجلات غير المكتملة ونظم الرقابة المحاسبية** (معالجة السجلات الناقصة، ومذكرة تسوية البنك Bank Reconciliation).
+7. **الوحدة السابعة: الإهلاك والمخصصات واستبعاد الأصول** (طرق الإهلاك: القسط الثابت والقسط المتناقص، مخصص الديون المشكوك فيها، ومخصص هبوط أسعار بضاعة).
+8. **الوحدة الثامنة: حسابات الشراكة (Partnership Accounts)** (عقد الشركة، توزيع الأرباح والخسائر، انضمام أو انفصال شريك، إعادة التقدير، والشهرة).
+9. **الوحدة التاسعة: الشركات ذات المسؤولية المحدودة والمنظمات غير الهادفة للربح** (الأسهم والسندات، وحساب المقبوضات والمدفوعات).
+10. **الوحدة العاشرة: تحليل القوائم المالية وتفسيرها** (نسب السيولة والتداول، نسب الربحية، نسب الكفاءة، وتطبيق منهجية التفسير المدعوم بالأدلة JRE).
+
+تفضل بطرح أي تمرين أو مسألة في أي وحدة وسأحلها لك فوراً بالخطوات الدقيقة! ✍️`;
+
+// Fast matching for greetings and curriculum inquiries to guarantee 0ms latency
 function matchImmediateResponse(text: string, hasAttachment: boolean): string | null {
   if (hasAttachment) return null;
   const clean = text
@@ -33,6 +51,7 @@ function matchImmediateResponse(text: string, hasAttachment: boolean): string | 
     .replace(/[!?.،؟]/g, '')
     .replace(/\s+/g, ' ');
 
+  // Greetings
   if (
     /^(السلام عليكم|سلام عليكم|وعليكم السلام|السلام عليكم ورحمة الله|السلام عليكم ورحمة الله وبركاته|سلام)$/i.test(
       clean
@@ -43,18 +62,26 @@ function matchImmediateResponse(text: string, hasAttachment: boolean): string | 
 
 أنا جاهز ومتحمس تماماً لمساعدتك في:
 1. 📝 حل أي مسألة أو تمرين محاسبي بالتمهيد الحسابي وقيود اليومية والقوائم المالية.
-2. 📷 قراءة وفحص صور التمارين والمستندات وحلها خطوة بخطوة بالحل النموذجي.
-3. 💡 إجابة أسئلة التفسير بمنهجية الوزارة JRE [الحكم + التفسير + الدليل].
-4. 🔊 الاستماع للشرح الصوتي لكل مسألة بوضوح.
+2. 📎 قراءة وفحص صور التمارين والمستندات وصفحات كتاب الوزارة خطوة بخطوة.
+3. 💡 إجابة أسئلة التفسير والتعليل بمنهجية الوزارة المعتمدة JRE [الحكم + التفسير + الدليل].
 
-تفضل بكتابة سؤالك أو إرفاق صورة المسألة فوراً لنبدأ الحل! ✍️`;
+تفضل بكتابة سؤالك أو إرفاق صورة المسألة فوراً لنبدأ الحل النموذجي! ✍️`;
+  }
+
+  // Curriculum overview
+  if (
+    /^(ما هي مكونات المنهج|مكونات المنهج|ما هو المنهج|فهرس المنهج|محتويات المنهج|الوحدات المقررة|كم وحدة في المنهج|ما هو منهج المحاسبة|فهرس الوحدات|الوحدات العشر)$/i.test(
+      clean
+    )
+  ) {
+    return CURRICULUM_COMPONENTS_TEXT;
   }
 
   if (/^(مرحبا|مرحباً|أهلا|اهلا|أهلاً|أهلا وسهلا|اهلا وسهلا|هاي|هلو|hello|hi)$/i.test(clean)) {
     return `أهلاً ومرحباً بك يا عبقري المحاسبة! 🌟
 معك «البوب» مدرس المحاسبة المالية للصف الثاني الثانوي (2026).
 أنا تحت أمرك في أي تمرين، قيد يومية، حسابات ختامية، أو سؤال في منهجك.
-اطرح سؤالك أو أرسل صورة التمرين من كتابك وسأجيبك فوراً بالخطوات والشرح الصوتي! 📚`;
+اطرح سؤالك أو أرسل صورة التمرين من كتابك وسأجيبك فوراً بالحل والخطوات الدقيقة! 📚`;
   }
 
   if (/^(صباح الخير|صباح النور|مساء الخير|مساء النور)$/i.test(clean)) {
@@ -84,7 +111,6 @@ function matchImmediateResponse(text: string, hasAttachment: boolean): string | 
 أقدم لك:
 1. حل المسائل الرياضية بالتمهيد الحسابي وقيود اليومية ودفاتر الأستاذ والحسابات الختامية.
 2. فحص صور الكتب والمذكرات والمستندات وحلها فورياً.
-3. شرح صوتي مسموع بالضغط على زر «استمع للشرح».
 
 تفضل بإرسال أي مسألة أو سؤال وسأبدأ الحل معك فوراً! 🚀`;
   }
@@ -136,6 +162,7 @@ export default async function handler(req: any, res: any) {
         !m.content?.startsWith('⚠️') &&
         !m.content?.includes('تعذر استلام') &&
         !m.content?.includes('جاري فحص المسألة') &&
+        !m.content?.includes('جاري مراجعة المسألة') &&
         !m.content?.includes('عذراً')
     );
 
@@ -146,7 +173,7 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'يجب أن تبدأ المحادثة برسالة من المستخدم' });
     }
 
-    // Check last user message for fast greetings / pleasantries to preserve API quotas
+    // Check last user message for fast immediate matching
     const lastUserMessage = [...userStartedMessages].reverse().find((m) => m.role === 'user');
     if (lastUserMessage) {
       const immediate = matchImmediateResponse(
@@ -161,7 +188,10 @@ export default async function handler(req: any, res: any) {
     // Convert messages to Gemini contents supporting multimodality
     const contents: Array<{ role: 'user' | 'model'; parts: Array<any> }> = [];
 
-    for (const msg of userStartedMessages) {
+    // Keep only last 4 messages to prevent excessive token count and keep response times lightning-fast
+    const recentMessages = userStartedMessages.slice(-4);
+
+    for (const msg of recentMessages) {
       const role: 'user' | 'model' =
         msg.role === 'model' || msg.role === 'assistant' ? 'model' : 'user';
       const parts: any[] = [];
@@ -183,7 +213,7 @@ export default async function handler(req: any, res: any) {
       if (!textContent && msg.attachment) {
         textContent = 'يرجى حل وشرح المسألة المحاسبية المرفقة خطوة بخطوة بالتمهيد الحسابي وقيود اليومية والقوائم المالية حلاً نموذجياً دقيقاً.';
       } else if (textContent && msg.attachment) {
-        textContent = `${textContent}\n(توجيه للمساعد: حلل بيانات الصورة أو المستند المحاسبي بدقة تامة واذكر التمهيد الحسابي والقيود والحسابات وفق منهج الصف الثاني الثانوي التجاري 2026).`;
+        textContent = `${textContent}\n(توجيه: حلل بيانات المستند أو الصورة المحاسبية بدقة تامة واذكر التمهيد الحسابي والقيود وفق منهج الصف الثاني الثانوي 2026).`;
       }
 
       if (textContent) {
@@ -199,7 +229,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Ensure conversation starts and ends with user message for strict API compliance
+    // Ensure conversation starts and ends with user message
     while (contents.length > 0 && contents[0].role !== 'user') {
       contents.shift();
     }
@@ -218,12 +248,11 @@ export default async function handler(req: any, res: any) {
       },
     });
 
-    // High-performance models with active capacity & fallback
-    const modelsToTry: Array<{ name: string; thinkingLevel?: ThinkingLevel }> = [
-      { name: 'gemini-3.6-flash' },
-      { name: 'gemini-3.5-flash' },
-      { name: 'gemini-flash-lite-latest' },
-      { name: 'gemini-3.5-flash-lite' },
+    // High-performance models prioritized for sub-3-second responses
+    const modelsToTry: Array<{ name: string; thinkingBudget?: number }> = [
+      { name: 'gemini-3.5-flash', thinkingBudget: 0 },
+      { name: 'gemini-3.6-flash', thinkingBudget: 0 },
+      { name: 'gemini-flash-latest' },
     ];
 
     let replyText = '';
@@ -237,9 +266,9 @@ export default async function handler(req: any, res: any) {
           systemInstruction: SYSTEM_INSTRUCTION,
         };
 
-        if (item.thinkingLevel) {
+        if (typeof item.thinkingBudget === 'number') {
           config.thinkingConfig = {
-            thinkingLevel: item.thinkingLevel,
+            thinkingBudget: item.thinkingBudget,
           };
         }
 
@@ -265,9 +294,8 @@ export default async function handler(req: any, res: any) {
           msg.includes('Rate limit')
         ) {
           hadRateLimit = true;
-          // Apply exponential backoff before trying next fallback model
           if (i < modelsToTry.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
         }
       }
@@ -276,7 +304,7 @@ export default async function handler(req: any, res: any) {
     if (!replyText) {
       if (hadRateLimit) {
         return res.status(429).json({
-          error: 'تم بلوغ الحد المؤقت لطلبات الدقيقة (429). يُرجى الانتظار بضع ثوانٍ فقط ثم الضغط على زر إعادة المحاولة.',
+          error: 'تم بلوغ الحد المؤقت لطلبات الدقيقة (429). يُرجى الانتظار 3 ثوانٍ فقط ثم النقر على زر إعادة المحاولة.',
         });
       }
       return res.status(503).json({
