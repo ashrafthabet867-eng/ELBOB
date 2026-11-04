@@ -255,9 +255,10 @@ export default async function handler(req: any, res: any) {
           });
 
           const modelsToTry: Array<{ name: string; thinkingBudget?: number }> = [
-            { name: 'gemini-3.5-flash', thinkingBudget: 0 },
-            { name: 'gemini-3.6-flash', thinkingBudget: 0 },
+            { name: 'gemini-flash-lite-latest' },
+            { name: 'gemini-3.1-flash-lite' },
             { name: 'gemini-flash-latest' },
+            { name: 'gemini-3.5-flash-lite' },
           ];
 
           for (const item of modelsToTry) {

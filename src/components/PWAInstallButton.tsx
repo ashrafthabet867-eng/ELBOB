@@ -16,11 +16,11 @@ export const PWAInstallButton: React.FC = () => {
     return (
       <button
         onClick={install}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 cursor-pointer border border-emerald-400/30"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 cursor-pointer border border-emerald-400/40"
         title="تثبيت تطبيق البوب على جهازك"
       >
         <Download className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">تثبيت التطبيق</span>
+        <span>تثبيت التطبيق</span>
       </button>
     );
   }
@@ -29,11 +29,11 @@ export const PWAInstallButton: React.FC = () => {
     <>
       <button
         onClick={() => setShowModal(true)}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold rounded-xl transition cursor-pointer"
         title="تثبيت التطبيق على جهازك"
       >
         <Download className="w-3.5 h-3.5 text-emerald-400" />
-        <span className="hidden sm:inline">تثبيت التطبيق</span>
+        <span>تثبيت التطبيق</span>
       </button>
 
       {showModal && (
